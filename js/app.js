@@ -72,6 +72,20 @@
   const processEmailBtn = document.getElementById('processEmailFiles');
   const emailProgress = document.getElementById('emailProgress');
   const emailStatus = document.getElementById('emailStatus');
+  const emailLogBox = document.getElementById('emailLogBox');
+
+  function addLogEntry(msg, type = 'info') {
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    const timestamp = new Date().toLocaleTimeString();
+    entry.textContent = `[${timestamp}] ${msg}`;
+    emailLogBox.appendChild(entry);
+    emailLogBox.scrollTop = emailLogBox.scrollHeight;
+  }
+
+  function clearLog() {
+    emailLogBox.innerHTML = '';
+  }
 
   function refreshEmailList() {
     emailFileList.innerHTML = '';
@@ -96,6 +110,7 @@
     emailFiles = [];
     refreshEmailList();
     setProgress(emailProgress, 0);
+    clearLog();
     setStatus(emailStatus, 'File list cleared');
   });
 
@@ -104,12 +119,18 @@
     processEmailBtn.disabled = true;
     clearEmailBtn.disabled = true;
     setProgress(emailProgress, 0);
+    clearLog();
+    addLogEntry('Starting email extraction...', 'info');
+    addLogEntry(`Processing ${emailFiles.length} file(s)`, 'info');
 
     try {
       const result = await Processing.extractEmails(
         emailFiles,
         pct => setProgress(emailProgress, pct),
-        msg => setStatus(emailStatus, msg)
+        msg => {
+          setStatus(emailStatus, msg);
+          addLogEntry(msg, 'info');
+        }
       );
 
       let summary = `Processing Complete!\n\nFiles Processed: ${emailFiles.length}\n\n`;
@@ -118,6 +139,7 @@
         summary += `${s.file}:\n`;
         if (s.error) {
           summary += `  ERROR: ${s.error}\n\n`;
+          addLogEntry(`✗ ${s.file}: ERROR - ${s.error}`, 'error');
           continue;
         }
         summary += `  Rows read: ${s.total.toLocaleString()}\n`;
@@ -126,6 +148,7 @@
         summary += `  Created: ${s.created.toLocaleString()}\n`;
         summary += `  Other: ${s.other.toLocaleString()}\n\n`;
         totalValid += s.valid;
+        addLogEntry(`✓ ${s.file}: ${s.valid.toLocaleString()} valid rows (${s.created.toLocaleString()} Created, ${s.other.toLocaleString()} Other)`, 'success');
       }
       summary += `FINAL TOTALS:\n`;
       summary += `Total valid rows: ${totalValid.toLocaleString()}\n`;
@@ -133,6 +156,8 @@
       summary += `Other Actions: ${result.otherList.length.toLocaleString()} unique emails\n`;
       summary += `TOTAL: ${(result.createdList.length + result.otherList.length).toLocaleString()} unique emails`;
 
+      addLogEntry('', 'info');
+      addLogEntry(`TOTAL UNIQUE EMAILS: ${(result.createdList.length + result.otherList.length).toLocaleString()}`, 'success');
       setStatus(emailStatus, 'Processing completed successfully!', 'success');
       showModal('Processing Complete', summary, { blob: result.blob, filename: result.filename });
 
@@ -141,6 +166,7 @@
 
     } catch (err) {
       console.error(err);
+      addLogEntry(`ERROR: ${err.message}`, 'error');
       setStatus(emailStatus, `Error: ${err.message}`, 'error');
       showModal('Error', `Error during processing:\n\n${err.message}\n\n${err.stack || ''}`);
     } finally {
