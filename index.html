@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Content Logs Analyzer</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Content Logs Analyzer</h1>
+  <p class="subtitle">Browser version &mdash; processes files locally, no upload to any server</p>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="emails">Email Extractor</button>
+  <button class="tab-btn" data-tab="adobe">Adobe Data Preparation</button>
+</nav>
+
+<main class="content">
+
+  <!-- ============ TAB 1: EMAIL EXTRACTOR ============ -->
+  <section id="tab-emails" class="tab-pane active">
+    <div class="features">
+      <strong>Features:</strong>
+      <ul>
+        <li>Handles CSV files with extra commas (malformed data)</li>
+        <li>Automatically skips bad rows</li>
+        <li>Extracts maximum valid data</li>
+        <li>Column A: "Created" &amp; "Created public link" emails</li>
+        <li>Column C: All other action emails</li>
+      </ul>
+    </div>
+
+    <div class="actions">
+      <label class="btn btn-primary">
+        Select Files to Process
+        <input type="file" id="emailFiles" multiple accept=".csv,.xlsx,.xls" hidden>
+      </label>
+      <button id="clearEmailFiles" class="btn btn-secondary">Clear List</button>
+      <button id="processEmailFiles" class="btn btn-primary" disabled>Process Files</button>
+    </div>
+
+    <div class="file-list-wrap">
+      <div class="file-list-label">Selected Files:</div>
+      <ul id="emailFileList" class="file-list"></ul>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-bar"><div id="emailProgress" class="progress-fill"></div></div>
+      <div id="emailStatus" class="status">Ready to process files</div>
+    </div>
+  </section>
+
+  <!-- ============ TAB 2: ADOBE DATA PREP ============ -->
+  <section id="tab-adobe" class="tab-pane">
+    <div class="features">
+      <strong>Adobe Data Preparation</strong>
+      <p>Select an Adobe student data file and generate State / Lead / Manager / LIC summaries with school &amp; district counts.</p>
+      <p class="muted">Required columns: <code>LIC_Name</code>, <code>Project Lead_Name</code>, <code>Associate Manager_Name</code>, <code>state</code>, <code>district</code>, <code>schoolCode</code>, <code>Completed MAU?</code>, <code>Logged In?</code></p>
+    </div>
+
+    <div class="actions">
+      <label class="btn btn-primary">
+        Choose Adobe Data File
+        <input type="file" id="adobeFile" accept=".csv,.xlsx,.xls,.xlsm" hidden>
+      </label>
+      <button id="prepareAdobe" class="btn btn-primary" disabled>Prepare Data</button>
+    </div>
+
+    <div id="adobeFileLabel" class="file-info">No Adobe data file selected</div>
+
+    <div class="progress-wrap">
+      <div class="progress-bar"><div id="adobeProgress" class="progress-fill"></div></div>
+      <div id="adobeStatus" class="status">Ready</div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Modal for summary dialogs -->
+<div id="modal" class="modal-overlay hidden">
+  <div class="modal-dialog">
+    <header class="modal-header">
+      <h2 id="modalTitle">Result</h2>
+      <button id="modalClose" class="modal-close" aria-label="Close">&times;</button>
+    </header>
+    <pre id="modalBody" class="modal-body"></pre>
+    <footer class="modal-footer">
+      <button id="modalDownload" class="btn btn-primary hidden">Download File</button>
+      <button id="modalOk" class="btn btn-secondary">Close</button>
+    </footer>
+  </div>
+</div>
+
+<footer class="app-footer">
+  <span>All processing happens in your browser. Files never leave your machine.</span>
+</footer>
+
+<!-- Libraries via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
+<!-- App scripts -->
+<script src="js/processing.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

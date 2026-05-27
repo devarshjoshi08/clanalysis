@@ -1,0 +1,288 @@
+:root {
+  --primary: #A21E01;
+  --primary-dark: #7A1601;
+  --primary-light: #C42802;
+  --surface: #111827;
+  --surface-2: #0B1220;
+  --surface-3: #1F2937;
+  --border: #374151;
+  --text: #FFFFFF;
+  --text-muted: #9CA3AF;
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: var(--surface);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ===== Header ===== */
+.app-header {
+  background: var(--primary);
+  padding: 24px 32px;
+  border-bottom: 4px solid var(--primary-dark);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.app-header h1 {
+  margin: 0 0 6px 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+.subtitle {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+/* ===== Tabs ===== */
+.tabs {
+  display: flex;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 32px;
+}
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 14px 24px;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--text);
+  border-bottom-color: var(--primary);
+}
+
+/* ===== Main content ===== */
+.content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px;
+}
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* ===== Features block ===== */
+.features {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  padding: 16px 20px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+.features ul { margin: 8px 0 0 0; padding-left: 22px; }
+.features li { margin: 4px 0; }
+.features p { margin: 6px 0 0 0; }
+.features .muted { color: var(--text-muted); font-size: 12px; }
+.features code {
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+/* ===== Buttons ===== */
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.btn {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+  text-align: center;
+  user-select: none;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+.btn-primary:hover:not(:disabled) { background: var(--primary-light); }
+.btn-primary:disabled {
+  background: var(--surface-3);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.btn-secondary {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover:not(:disabled) { background: var(--border); }
+
+/* ===== File list ===== */
+.file-list-wrap { margin-bottom: 18px; }
+.file-list-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  min-height: 50px;
+}
+.file-list li {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 12px;
+}
+.file-list li:last-child { border-bottom: none; }
+.file-list:empty::before {
+  content: "No files selected";
+  display: block;
+  padding: 16px;
+  color: var(--text-muted);
+  text-align: center;
+  font-style: italic;
+}
+
+.file-info {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 12px;
+}
+
+/* ===== Progress bar ===== */
+.progress-wrap { margin-top: 8px; }
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--primary), var(--primary-light));
+  transition: width 0.3s;
+}
+.status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-height: 18px;
+}
+.status.error { color: var(--danger); }
+.status.success { color: var(--success); }
+.status.warning { color: var(--warning); }
+
+/* ===== Modal ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-overlay.hidden { display: none; }
+.modal-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: min(640px, 90vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal-header {
+  background: var(--primary);
+  padding: 14px 20px;
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.modal-header h2 { margin: 0; font-size: 16px; }
+.modal-close {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  margin: 0;
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--text);
+  background: var(--surface-2);
+}
+.modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.hidden { display: none !important; }
+
+/* ===== Footer ===== */
+.app-footer {
+  text-align: center;
+  padding: 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  margin-top: 40px;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 640px) {
+  .content { padding: 20px 16px; }
+  .app-header { padding: 18px 16px; }
+  .tabs { padding: 0 16px; overflow-x: auto; }
+  .tab-btn { padding: 12px 16px; white-space: nowrap; }
+  .actions { flex-direction: column; }
+  .btn { width: 100%; }
+}
