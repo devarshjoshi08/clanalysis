@@ -210,6 +210,8 @@ html, body {
 /* ===== Log Box ===== */
 .log-box-wrap {
   margin-top: 20px;
+  display: block;
+  width: 100%;
 }
 .log-box-label {
   font-size: 12px;
@@ -220,17 +222,21 @@ html, body {
   letter-spacing: 0.5px;
 }
 .log-box {
+  display: block;
   background: var(--surface-2);
-  border: 1px solid var(--border);
+  border: 2px solid var(--border);
   border-radius: 6px;
   padding: 12px;
   max-height: 250px;
+  height: auto;
   overflow-y: auto;
   min-height: 80px;
   font-family: "Consolas", "Monaco", monospace;
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.6;
+  box-sizing: border-box;
+  visibility: visible;
 }
 .log-box:empty::before {
   content: "Waiting for processing to begin...";
@@ -238,6 +244,7 @@ html, body {
   color: var(--text-muted);
   font-style: italic;
   opacity: 0.7;
+  white-space: normal;
 }
 .log-entry {
   margin-bottom: 4px;
