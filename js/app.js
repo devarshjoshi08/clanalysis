@@ -30,7 +30,7 @@
     if (downloadInfo) {
       pendingDownload = downloadInfo;
       modalDownload.classList.remove('hidden');
-      modalDownload.textContent = `Download ${downloadInfo.filename}`;
+      modalDownload.textContent = `Save ${downloadInfo.filename}`;
     } else {
       pendingDownload = null;
       modalDownload.classList.add('hidden');
@@ -47,10 +47,13 @@
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) hideModal();
   });
-  modalDownload.addEventListener('click', () => {
-    if (pendingDownload) {
-      Processing.triggerDownload(pendingDownload.blob, pendingDownload.filename);
-    }
+  modalDownload.addEventListener('click', async () => {
+    if (!pendingDownload) return;
+    const { blob, filename } = pendingDownload;
+    // Fresh user gesture here, so the picker can run inline
+    const handle = await Processing.pickSaveHandle(filename);
+    if (handle === null) return;   // cancelled
+    await Processing.saveBlob(blob, filename, handle);
   });
 
   /* ---------- Status helpers ---------- */
@@ -201,6 +204,15 @@
 
   prepareAdobeBtn.addEventListener('click', async () => {
     if (!adobeFile) return;
+
+    // Ask where to save BEFORE processing — the picker needs a fresh user
+    // gesture, and the gesture expires while the workbook is being built.
+    const saveHandle = await Processing.pickSaveHandle(Processing.adobeDefaultFilename());
+    if (saveHandle === null) {
+      setStatus(adobeStatus, 'Save cancelled — nothing was processed');
+      return;
+    }
+
     prepareAdobeBtn.disabled = true;
     setProgress(adobeProgress, 0);
 
@@ -229,10 +241,13 @@
         `Associate Managers: ${mgrDf.length - 1}\n\n` +
         `MAU % cutoff (schools):\n${cutoffLines}`;
 
-      setStatus(adobeStatus, 'Adobe summary created!', 'success');
-      showModal('Adobe Data Prepared', msg, { blob: result.blob, filename: result.filename });
+      const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
+      const savedNote = outcome === 'saved'
+        ? `\n\nSaved as: ${saveHandle.name}`
+        : "\n\nDownloaded to your browser's downloads folder.";
 
-      Processing.triggerDownload(result.blob, result.filename);
+      setStatus(adobeStatus, 'Adobe summary saved!', 'success');
+      showModal('Adobe Data Prepared', msg + savedNote, { blob: result.blob, filename: result.filename });
 
     } catch (err) {
       console.error(err);

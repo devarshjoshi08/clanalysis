@@ -72,6 +72,50 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/**
+ * Ask the user which folder / filename to save to, via the File System Access
+ * API (Chrome/Edge, secure context). Returns a file handle, null if the user
+ * cancelled, or undefined if the API isn't usable here.
+ *
+ * Call this straight from the click handler — the picker needs transient user
+ * activation, which expires while a long processing step runs.
+ */
+async function pickSaveHandle(suggestedName) {
+  if (!window.showSaveFilePicker) return undefined;
+  try {
+    return await window.showSaveFilePicker({
+      suggestedName,
+      types: [{
+        description: 'Excel Workbook',
+        accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
+      }]
+    });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return null;   // user cancelled
+    return undefined;                                 // unavailable (e.g. file://)
+  }
+}
+
+/**
+ * Write blob to a handle from pickSaveHandle; falls back to a browser download
+ * when no handle is available. Returns 'saved' | 'downloaded'.
+ */
+async function saveBlob(blob, filename, handle) {
+  if (!handle) {
+    triggerDownload(blob, filename);
+    return 'downloaded';
+  }
+  const writable = await handle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+  return 'saved';
+}
+
+/** Default output name for the Adobe summary — known before processing runs. */
+function adobeDefaultFilename() {
+  return `Adobe_LoggedinDetais(${dateStamp()}).xlsx`;
+}
+
 /* ============================================================
  * FEATURE 1 — Email extractor
  * Required columns: 'Action', 'User Email'
@@ -216,8 +260,7 @@ async function prepareAdobeData(file, onProgress, onStatus) {
   const blob = await buildAdobeWorkbook(rows, summaries, mauDist);
   onProgress(100);
 
-  const today = dateStamp();
-  const filename = `Adobe_LoggedinDetais(${today}).xlsx`;
+  const filename = adobeDefaultFilename();
 
   const totalStudents = rows.length;
   const mauStudents = rows.filter(r => isYes(r['Completed MAU?'])).length;
@@ -502,17 +545,22 @@ async function buildAdobeWorkbook(rawRows, summaries, mauDist) {
   wsRaw.addRows(rawData);
 
   // ----- Summary sheets -----
+  const titleFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA21E01' } };
+  const titleFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 14 };
+
+  // [sheet name, rows, merged summary title shown in row 1]
   const summarySheets = [
-    ['State_wise', summaries.stateDf],
-    ['LIC_Mapping', summaries.licDf],
-    ['Lead_Level', summaries.leadDf],
-    ['Manager_Level', summaries.mgrDf],
-    ['MAU_Cutoff', mauDist]
+    ['State_wise',    summaries.stateDf, 'State Level Summary'],
+    ['LIC_Mapping',   summaries.licDf,   'LIC Level Summary'],
+    ['Lead_Level',    summaries.leadDf,  'Lead Level Summary'],
+    ['Manager_Level', summaries.mgrDf,   'Manager Level Summary'],
+    ['MAU_Cutoff',    mauDist,           'School MAU % Cutoff Summary']
   ];
 
-  for (const [sheetName, dfRows] of summarySheets) {
+  for (const [sheetName, dfRows, title] of summarySheets) {
     if (!dfRows.length) continue;
-    const ws = wb.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 1 }] });
+    // ySplit 2 → title + header rows both stay visible while scrolling
+    const ws = wb.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 2 }] });
     const headers = Object.keys(dfRows[0]);
     const pctIdx = new Set(headers.map((h, i) => h.startsWith('%') ? i : -1).filter(i => i >= 0));
 
@@ -526,10 +574,21 @@ async function buildAdobeWorkbook(rawRows, summaries, mauDist) {
         if (len + 3 > widths[i]) widths[i] = Math.min(len + 3, 38);
       });
     }
-    ws.columns = headers.map((h, i) => ({ header: h, key: h, width: widths[i] }));
+    // No `header` here — row 1 is the merged title, row 2 is the column header
+    ws.columns = headers.map((h, i) => ({ key: h, width: widths[i] }));
+
+    // Merged summary title across the full table width
+    const titleRow = ws.addRow([title]);
+    if (headers.length > 1) ws.mergeCells(1, 1, 1, headers.length);
+    titleRow.height = 28;
+    const titleCell = ws.getCell(1, 1);
+    titleCell.fill = titleFill;
+    titleCell.font = titleFont;
+    titleCell.alignment = center;
+    titleCell.border = thinBorder;
 
     // Header styling
-    const headerRow = ws.getRow(1);
+    const headerRow = ws.addRow(headers);
     headerRow.eachCell(cell => {
       cell.fill = summaryHeaderFill;
       cell.font = summaryHeaderFont;
@@ -573,5 +632,8 @@ function dateStamp() {
 window.Processing = {
   extractEmails,
   prepareAdobeData,
-  triggerDownload
+  triggerDownload,
+  saveBlob,
+  pickSaveHandle,
+  adobeDefaultFilename
 };
