@@ -119,12 +119,25 @@
 
   processEmailBtn.addEventListener('click', async () => {
     if (!emailFiles.length) return;
+
+    // Ask where to save BEFORE processing — the folder picker needs a fresh
+    // user gesture that expires once async work starts.
+    const pickerSupported = Processing.saveFolderPickerSupported();
+    const saveHandle = await Processing.pickSaveHandle(Processing.emailDefaultFilename());
+    if (saveHandle === null) {
+      setStatus(emailStatus, 'Save cancelled — nothing was processed');
+      return;
+    }
+
     processEmailBtn.disabled = true;
     clearEmailBtn.disabled = true;
     setProgress(emailProgress, 0);
     clearLog();
     addLogEntry('Starting email extraction...', 'info');
     addLogEntry(`Processing ${emailFiles.length} file(s)`, 'info');
+    if (!pickerSupported) {
+      addLogEntry("Folder picker unavailable in this browser — output will download to your Downloads folder. Use Chrome or Edge over http/https to choose a folder.", 'error');
+    }
 
     try {
       const result = await Processing.extractEmails(
@@ -161,11 +174,18 @@
 
       addLogEntry('', 'info');
       addLogEntry(`TOTAL UNIQUE EMAILS: ${(result.createdList.length + result.otherList.length).toLocaleString()}`, 'success');
-      setStatus(emailStatus, 'Processing completed successfully!', 'success');
-      showModal('Processing Complete', summary, { blob: result.blob, filename: result.filename });
 
-      // Auto-trigger download too (mirrors os.startfile behavior in spirit)
-      Processing.triggerDownload(result.blob, result.filename);
+      const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
+      const savedNote = outcome === 'saved'
+        ? `\n\nSaved as: ${saveHandle.name}`
+        : "\n\nThis browser can't open a folder picker (only Chrome or Edge over http/https can), " +
+          "so the file was downloaded to your browser's Downloads folder instead.";
+      if (outcome === 'saved') addLogEntry(`Saved as: ${saveHandle.name}`, 'success');
+
+      setStatus(emailStatus,
+        outcome === 'saved' ? 'Processing complete — file saved!' : 'Processing complete — file downloaded to Downloads folder.',
+        'success');
+      showModal('Processing Complete', summary + savedNote, { blob: result.blob, filename: result.filename });
 
     } catch (err) {
       console.error(err);
@@ -207,10 +227,19 @@
 
     // Ask where to save BEFORE processing — the picker needs a fresh user
     // gesture, and the gesture expires while the workbook is being built.
+    const pickerSupported = Processing.saveFolderPickerSupported();
     const saveHandle = await Processing.pickSaveHandle(Processing.adobeDefaultFilename());
     if (saveHandle === null) {
       setStatus(adobeStatus, 'Save cancelled — nothing was processed');
       return;
+    }
+    // saveHandle === undefined → the browser can't show a folder picker, so the
+    // file will be downloaded instead. Tell the user why up front rather than
+    // silently downloading.
+    if (!pickerSupported) {
+      setStatus(adobeStatus,
+        "This browser can't open a folder picker — the file will download to your Downloads folder. Open the app in Chrome or Edge (over http/https, not a file:// double-click) to choose a folder.",
+        'error');
     }
 
     prepareAdobeBtn.disabled = true;
@@ -244,9 +273,12 @@
       const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
       const savedNote = outcome === 'saved'
         ? `\n\nSaved as: ${saveHandle.name}`
-        : "\n\nDownloaded to your browser's downloads folder.";
+        : "\n\nThis browser can't open a folder picker (only Chrome or Edge over http/https can), " +
+          "so the file was downloaded to your browser's Downloads folder instead.";
 
-      setStatus(adobeStatus, 'Adobe summary saved!', 'success');
+      setStatus(adobeStatus,
+        outcome === 'saved' ? 'Adobe summary saved!' : 'Adobe summary downloaded to your Downloads folder.',
+        'success');
       showModal('Adobe Data Prepared', msg + savedNote, { blob: result.blob, filename: result.filename });
 
     } catch (err) {

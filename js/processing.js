@@ -116,6 +116,22 @@ function adobeDefaultFilename() {
   return `Adobe_LoggedinDetais(${dateStamp()}).xlsx`;
 }
 
+/** Default output name for the email extractor — known before processing runs. */
+function emailDefaultFilename() {
+  return `Processed_User_Emails_${dateStamp()}.xlsx`;
+}
+
+/**
+ * True when the browser can show a native "choose folder / save as" dialog.
+ * Only Chromium browsers (Chrome, Edge, Opera) over http(s) expose this;
+ * Firefox, Safari, and pages opened via file:// cannot, and will fall back to
+ * a normal download. Used to warn the user up front instead of silently
+ * downloading.
+ */
+function saveFolderPickerSupported() {
+  return typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
+}
+
 /* ============================================================
  * FEATURE 1 — Email extractor
  * Required columns: 'Action', 'User Email'
@@ -635,5 +651,7 @@ window.Processing = {
   triggerDownload,
   saveBlob,
   pickSaveHandle,
-  adobeDefaultFilename
+  adobeDefaultFilename,
+  emailDefaultFilename,
+  saveFolderPickerSupported
 };
