@@ -290,4 +290,122 @@
     }
   });
 
+  /* ============================================================
+   * TAB 3 — Process + Adobe Data Preparation
+   * Chains email extraction -> template roster -> Adobe summaries.
+   * ============================================================ */
+  let paFiles = [];
+  const paFilesInput = document.getElementById('paFiles');
+  const paFileList   = document.getElementById('paFileList');
+  const clearPaBtn   = document.getElementById('clearPaFiles');
+  const runPaBtn     = document.getElementById('runPaAdobe');
+  const paProgress   = document.getElementById('paProgress');
+  const paStatus     = document.getElementById('paStatus');
+  const paLogBox     = document.getElementById('paLogBox');
+
+  function paLog(msg, type = 'info') {
+    if (msg === '') { return; }
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    paLogBox.appendChild(entry);
+    paLogBox.scrollTop = paLogBox.scrollHeight;
+  }
+
+  function refreshPaList() {
+    paFileList.innerHTML = '';
+    for (const f of paFiles) {
+      const li = document.createElement('li');
+      li.textContent = f.name;
+      paFileList.appendChild(li);
+    }
+    runPaBtn.disabled = paFiles.length === 0;
+  }
+
+  paFilesInput.addEventListener('change', e => {
+    const newFiles = Array.from(e.target.files || []);
+    if (!newFiles.length) return;
+    paFiles = paFiles.concat(newFiles);
+    refreshPaList();
+    setStatus(paStatus, `${paFiles.length} file(s) selected. Ready.`, 'success');
+    paFilesInput.value = '';
+  });
+
+  clearPaBtn.addEventListener('click', () => {
+    paFiles = [];
+    refreshPaList();
+    setProgress(paProgress, 0);
+    paLogBox.innerHTML = '';
+    setStatus(paStatus, 'File list cleared');
+  });
+
+  runPaBtn.addEventListener('click', async () => {
+    if (!paFiles.length) return;
+
+    // Ask where to save the FINAL file first — the picker needs a fresh user
+    // gesture that would expire during the (long) template load.
+    const pickerSupported = Processing.saveFolderPickerSupported();
+    const saveHandle = await Processing.pickSaveHandle(Processing.adobeDefaultFilename());
+    if (saveHandle === null) {
+      setStatus(paStatus, 'Save cancelled — nothing was processed');
+      return;
+    }
+
+    runPaBtn.disabled = true;
+    clearPaBtn.disabled = true;
+    setProgress(paProgress, 0);
+    paLogBox.innerHTML = '';
+    paLog('Starting: Process + Adobe Data Preparation', 'info');
+    paLog(`Content-log files: ${paFiles.length}`, 'info');
+    if (!pickerSupported) {
+      paLog("Folder picker unavailable in this browser — the final file will download to your Downloads folder. Use Chrome or Edge over http/https to choose a folder.", 'error');
+    }
+
+    try {
+      const result = await Processing.processAndPrepareAdobe(
+        paFiles,
+        pct => setProgress(paProgress, pct),
+        msg => { setStatus(paStatus, msg); paLog(msg, 'info'); }
+      );
+
+      const cutoffLines = result.mauDist
+        .slice(0, -1)
+        .map(r => `  ${r['MAU % Range']}: ${r['No. of Schools']}`)
+        .join('\n');
+
+      const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
+      const savedNote = outcome === 'saved'
+        ? `\n\nSaved as: ${saveHandle.name}`
+        : "\n\nThis browser can't open a folder picker (only Chrome or Edge over http/https can), " +
+          "so the file was downloaded to your browser's Downloads folder instead.";
+      if (outcome === 'saved') paLog(`Saved as: ${saveHandle.name}`, 'success');
+
+      const msg =
+        'Process + Adobe Preparation complete!\n\n' +
+        `File: ${result.filename}\n\n` +
+        `Content-log files: ${paFiles.length}\n` +
+        `Emails → Completed MAU (Mapping col A): ${result.createdCount.toLocaleString()}\n` +
+        `Emails → Logged In (Mapping col C): ${result.otherCount.toLocaleString()}\n\n` +
+        `Students in roster: ${result.totalStudents.toLocaleString()}\n` +
+        `Marked Completed MAU: ${result.mauStudents.toLocaleString()}\n` +
+        `Marked Logged In: ${result.logStudents.toLocaleString()}\n\n` +
+        `MAU % cutoff (schools):\n${cutoffLines}`;
+
+      paLog(`Done — ${result.mauStudents.toLocaleString()} MAU / ${result.logStudents.toLocaleString()} logged-in of ${result.totalStudents.toLocaleString()} students`, 'success');
+      setStatus(paStatus,
+        outcome === 'saved' ? 'Final summary saved!' : 'Final summary downloaded to your Downloads folder.',
+        'success');
+      showModal('Process + Adobe Data Prepared', msg + savedNote, { blob: result.blob, filename: result.filename });
+
+    } catch (err) {
+      console.error(err);
+      paLog(`ERROR: ${err.message}`, 'error');
+      setStatus(paStatus, `Error: ${err.message}`, 'error');
+      showModal('Error', `Error during Process + Adobe preparation:\n\n${err.message}\n\n${err.stack || ''}`);
+    } finally {
+      runPaBtn.disabled = paFiles.length === 0;
+      clearPaBtn.disabled = false;
+    }
+  });
+
 })();
