@@ -16,6 +16,7 @@
 <nav class="tabs">
   <button class="tab-btn active" data-tab="emails">Email Extractor</button>
   <button class="tab-btn" data-tab="adobe">Adobe Data Preparation</button>
+  <button class="tab-btn" data-tab="paAdobe">Process + Adobe Data Preparation</button>
 </nav>
 
 <main class="content">
@@ -79,6 +80,44 @@
     <div class="progress-wrap">
       <div class="progress-bar"><div id="adobeProgress" class="progress-fill"></div></div>
       <div id="adobeStatus" class="status">Ready</div>
+    </div>
+  </section>
+
+  <!-- ============ TAB 3: PROCESS + ADOBE DATA PREP ============ -->
+  <section id="tab-paAdobe" class="tab-pane">
+    <div class="features">
+      <strong>Process + Adobe Data Preparation</strong>
+      <p>One click: split your content-log emails, use them to mark each student's MAU / login in the reporting template, and generate the final Adobe summary &mdash; no manual Excel steps.</p>
+      <ul>
+        <li>Select the same content-log files you use for the Email Extractor.</li>
+        <li>Created &amp; "Created public link" emails &rarr; <code>Completed MAU?</code>; all other action emails &rarr; <code>Logged In?</code>.</li>
+        <li>The template roster (<code>Adobe_Reporting_Template.xlsm</code>) is loaded automatically each run; your template file is never changed and nothing is left behind.</li>
+      </ul>
+      <p class="muted"><strong>Heavy step:</strong> the template is ~24&nbsp;MB / 200k rows. Use <strong>Chrome or Edge on a desktop</strong>, served over http/https (not a <code>file://</code> double-click). Expect ~15&ndash;40&nbsp;s and high memory while it runs.</p>
+    </div>
+
+    <div class="actions">
+      <label class="btn btn-primary">
+        Select Content-Log Files
+        <input type="file" id="paFiles" multiple accept=".csv,.xlsx,.xls" hidden>
+      </label>
+      <button id="clearPaFiles" class="btn btn-secondary">Clear List</button>
+      <button id="runPaAdobe" class="btn btn-primary" disabled>Process + Prepare</button>
+    </div>
+
+    <div class="file-list-wrap">
+      <div class="file-list-label">Selected Files:</div>
+      <ul id="paFileList" class="file-list"></ul>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-bar"><div id="paProgress" class="progress-fill"></div></div>
+      <div id="paStatus" class="status">Ready</div>
+    </div>
+
+    <div class="log-box-wrap">
+      <div class="log-box-label">Progress Log:</div>
+      <div id="paLogBox" class="log-box"></div>
     </div>
   </section>
 
