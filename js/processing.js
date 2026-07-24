@@ -707,9 +707,70 @@ const ADOBE_TEMPLATE_URL    = 'Adobe_Reporting_Template.xlsm';
 const TEMPLATE_ROSTER_SHEET = 'Raw_Data';
 const TEMPLATE_EMAIL_COL    = 'Adobe Email';
 
+// Compact roster columns kept for the summaries. Everything the Adobe prep needs
+// except the MAU/Login flags, which are recomputed per run from the content logs.
+const ROSTER_COLS = [
+  'LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'Project Name',
+  'schoolCode', 'district', 'state', TEMPLATE_EMAIL_COL
+];
+
+/* ------------------------------------------------------------------
+ * Roster cache — the template is a static 24 MB / 200k-row workbook, so
+ * parsing it every run is the slow part. We parse it once into a compact
+ * TSV and cache that (in memory for the session, and in IndexedDB across
+ * reloads) keyed by the template's version. Repeat runs then skip both the
+ * 24 MB download and the ~10 s parse. Cache is best-effort: any failure
+ * falls back to a normal download + parse, so results are never affected.
+ * ------------------------------------------------------------------ */
+const ROSTER_IDB_NAME  = 'cla_roster_cache';
+const ROSTER_IDB_STORE = 'roster';
+let _rosterMemCache = null; // { key, tsv } for this page session
+
+function idbOpenRoster() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') { reject(new Error('no indexedDB')); return; }
+    const req = indexedDB.open(ROSTER_IDB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(ROSTER_IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGetRoster(key) {
+  try {
+    const db = await idbOpenRoster();
+    return await new Promise((resolve) => {
+      const r = db.transaction(ROSTER_IDB_STORE, 'readonly').objectStore(ROSTER_IDB_STORE).get(key);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => resolve(null);
+    });
+  } catch (_) { return null; }
+}
+async function idbPutRoster(key, tsv) {
+  try {
+    const db = await idbOpenRoster();
+    await new Promise((resolve) => {
+      const store = db.transaction(ROSTER_IDB_STORE, 'readwrite').objectStore(ROSTER_IDB_STORE);
+      store.clear();                 // keep only the latest template version
+      const p = store.put(tsv, key);
+      p.onsuccess = () => resolve();
+      p.onerror = () => resolve();
+    });
+  } catch (_) { /* caching is best-effort */ }
+}
+
+/** Cheap version tag for the template (ETag → Last-Modified → Content-Length). */
+async function rosterValidator() {
+  if (typeof fetch !== 'function') return null;
+  try {
+    const h = await fetch(ADOBE_TEMPLATE_URL, { method: 'HEAD', cache: 'no-store' });
+    if (!h.ok) return null;
+    return h.headers.get('ETag') || h.headers.get('Last-Modified') || h.headers.get('Content-Length') || null;
+  } catch (_) { return null; }
+}
+
 async function fetchAdobeTemplate(onStatus) {
   if (typeof fetch !== 'function') throw new Error('This browser cannot download the template (no fetch API).');
-  onStatus && onStatus('Downloading Adobe template roster (~24 MB)…');
+  onStatus && onStatus('Downloading Adobe template roster (~24 MB, first time for this version)…');
   let res;
   try {
     res = await fetch(ADOBE_TEMPLATE_URL, { cache: 'no-store' });
@@ -721,16 +782,103 @@ async function fetchAdobeTemplate(onStatus) {
 }
 
 /**
+ * Parse the template bytes into a compact TSV of ROSTER_COLS. Uses fast read
+ * options (skip formulas/styles/number-formats/HTML/VBA) that roughly halve the
+ * parse time versus a default read.
+ */
+function templateBytesToRosterTSV(buf) {
+  const data = (buf instanceof ArrayBuffer) ? new Uint8Array(buf) : buf;
+  const wb = XLSX.read(data, {
+    type: 'array', sheets: [TEMPLATE_ROSTER_SHEET],
+    cellFormula: false, cellHTML: false, cellText: false,
+    cellNF: false, cellStyles: false, cellDates: false, bookVBA: false
+  });
+  const ws = wb.Sheets[TEMPLATE_ROSTER_SHEET];
+  if (!ws) throw new Error(`Template is missing the '${TEMPLATE_ROSTER_SHEET}' sheet.`);
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+  if (aoa.length < 2) throw new Error('Template roster has no data rows.');
+
+  const header = aoa[0].map(h => String(h == null ? '' : h).trim());
+  const idx = name => header.indexOf(name);
+  const need = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'state', 'district', 'schoolCode'];
+  const missing = need.filter(n => idx(n) < 0);
+  if (missing.length) throw new Error(`Template roster is missing columns: ${missing.join(', ')}`);
+  if (idx(TEMPLATE_EMAIL_COL) < 0) throw new Error(`Template roster is missing the '${TEMPLATE_EMAIL_COL}' column.`);
+  const colIdx = ROSTER_COLS.map(c => idx(c)); // -1 allowed only for optional cols
+
+  const out = new Array(aoa.length);
+  out[0] = ROSTER_COLS.join('\t');
+  for (let i = 1; i < aoa.length; i++) {
+    const a = aoa[i];
+    let line = '';
+    for (let c = 0; c < colIdx.length; c++) {
+      const ci = colIdx[c];
+      let v = ci >= 0 ? a[ci] : '';
+      v = (v == null) ? '' : String(v);
+      if (v.indexOf('\t') >= 0) v = v.replace(/\t/g, ' ');
+      if (v.indexOf('\n') >= 0 || v.indexOf('\r') >= 0) v = v.replace(/[\r\n]+/g, ' ');
+      line += (c ? '\t' : '') + v;
+    }
+    out[i] = line;
+  }
+  return out.join('\n');
+}
+
+/** Hand-parse the compact roster TSV back into row objects (~0.1 s for 200k). */
+function rosterTSVToRows(tsv) {
+  const lines = tsv.split('\n');
+  const cols = lines[0].split('\t');
+  const rows = new Array(lines.length - 1);
+  for (let i = 1; i < lines.length; i++) {
+    const f = lines[i].split('\t');
+    const o = {};
+    for (let j = 0; j < cols.length; j++) o[cols[j]] = f[j];
+    rows[i - 1] = o;
+  }
+  return rows;
+}
+
+/**
+ * Obtain the compact roster TSV, using (in order): this session's memory cache,
+ * the persistent IndexedDB cache (keyed by the template version), then a fresh
+ * download + parse. Returns { tsv, fromCache }.
+ */
+async function loadRosterTSV(status, templateArrayBuffer) {
+  if (templateArrayBuffer) {                        // explicit-bytes path (tests)
+    return { tsv: templateBytesToRosterTSV(templateArrayBuffer), fromCache: false };
+  }
+  const key = await rosterValidator();
+  if (key) {
+    if (_rosterMemCache && _rosterMemCache.key === key) {
+      status('Using cached roster — no re-download needed.');
+      return { tsv: _rosterMemCache.tsv, fromCache: true };
+    }
+    const cached = await idbGetRoster(key);
+    if (cached) {
+      status('Using cached roster — no re-download needed.');
+      _rosterMemCache = { key, tsv: cached };
+      return { tsv: cached, fromCache: true };
+    }
+  }
+  // Cache miss — download + parse once, then remember it.
+  const buf = await fetchAdobeTemplate(status);
+  status('Reading template roster (one-time for this version)…');
+  const tsv = templateBytesToRosterTSV(buf);
+  if (key) { _rosterMemCache = { key, tsv }; idbPutRoster(key, tsv); }
+  return { tsv, fromCache: false };
+}
+
+/**
  * @param files  content-log CSV/XLSX files (same input as the email extractor)
  * @param templateArrayBuffer  optional pre-loaded template bytes (used by tests);
- *        when omitted, the template is fetched from ADOBE_TEMPLATE_URL.
+ *        when omitted, the roster is loaded (and cached) from ADOBE_TEMPLATE_URL.
  */
 async function processAndPrepareAdobe(files, onProgress, onStatus, templateArrayBuffer) {
   const status = onStatus || (() => {});
   const progress = onProgress || (() => {});
 
   // 1. Split content-log emails: Created → MAU (Mapping A), Other → Login (Mapping C)
-  status('Extracting emails from content logs…'); progress(4);
+  status('Extracting emails from content logs…'); progress(6);
   const emailRes = await extractEmails(files, () => {}, () => {});
   const validFiles = emailRes.fileStats.filter(s => !s.error).length;
   if (!validFiles) {
@@ -742,60 +890,30 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
   const createdSet  = new Set(createdList.map(e => e.trim().toLowerCase()));
   const otherSet    = new Set(otherList.map(e => e.trim().toLowerCase()));
 
-  // 2. Fetch a clean copy of the template roster.
-  progress(14);
-  const buf = templateArrayBuffer || await fetchAdobeTemplate(status);
-
-  status('Reading template roster (200k rows — this can take ~15–40s)…'); progress(28);
-  const data = (buf instanceof ArrayBuffer) ? new Uint8Array(buf) : buf;
-  let wb = XLSX.read(data, { type: 'array' });
-  let ws = wb.Sheets[TEMPLATE_ROSTER_SHEET];
-  if (!ws) throw new Error(`Template is missing the '${TEMPLATE_ROSTER_SHEET}' sheet.`);
-
-  // Read as arrays (lighter than objects); keep only the columns we need.
-  let aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
-  ws = null; wb = null; // release the parsed workbook memory
-  if (aoa.length < 2) throw new Error('Template roster has no data rows.');
-
-  const header = aoa[0].map(h => String(h == null ? '' : h).trim());
-  const idx = name => header.indexOf(name);
-  const need = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'state', 'district', 'schoolCode'];
-  const missing = need.filter(n => idx(n) < 0);
-  if (missing.length) throw new Error(`Template roster is missing columns: ${missing.join(', ')}`);
-  if (idx(TEMPLATE_EMAIL_COL) < 0) throw new Error(`Template roster is missing the '${TEMPLATE_EMAIL_COL}' column.`);
-
-  const cEmail = idx(TEMPLATE_EMAIL_COL);
-  const cLIC = idx('LIC_Name'), cLead = idx('Project Lead_Name'), cMgr = idx('Associate Manager_Name');
-  const cProj = idx('Project Name'), cState = idx('state'), cDist = idx('district'), cSchool = idx('schoolCode');
+  // 2. Load the roster (cached across runs; downloads + parses only when the
+  //    template version changes).
+  progress(16);
+  const { tsv, fromCache } = await loadRosterTSV(status, templateArrayBuffer);
+  const rosterRows = rosterTSVToRows(tsv);
+  if (rosterRows.length < 1) throw new Error('Template roster has no data rows.');
+  progress(48);
 
   // 3. Mark MAU / Login per student (replicates the template VLOOKUPs, case-insensitive).
-  status('Marking Completed MAU? / Logged In? for each student…'); progress(52);
+  status('Marking Completed MAU? / Logged In? for each student…'); progress(56);
   let mauYes = 0, logYes = 0;
-  const rows = new Array(aoa.length - 1);
-  for (let i = 1; i < aoa.length; i++) {
-    const a = aoa[i];
-    const em = String(a[cEmail] == null ? '' : a[cEmail]).trim().toLowerCase();
+  for (const r of rosterRows) {
+    const em = String(r[TEMPLATE_EMAIL_COL] == null ? '' : r[TEMPLATE_EMAIL_COL]).trim().toLowerCase();
     const mau = em !== '' && createdSet.has(em);
     const log = em !== '' && otherSet.has(em);
     if (mau) mauYes++;
     if (log) logYes++;
-    rows[i - 1] = {
-      'LIC_Name': a[cLIC],
-      'Project Lead_Name': a[cLead],
-      'Associate Manager_Name': a[cMgr],
-      'Project Name': cProj >= 0 ? a[cProj] : '',
-      'state': a[cState],
-      'district': a[cDist],
-      'schoolCode': a[cSchool],
-      'Completed MAU?': mau ? 'Yes' : 'No',
-      'Logged In?': log ? 'Yes' : 'No'
-    };
+    r['Completed MAU?'] = mau ? 'Yes' : 'No';
+    r['Logged In?'] = log ? 'Yes' : 'No';
   }
-  aoa = null; // release the raw array-of-arrays
 
   // 4. Aggregate (reuses the Adobe-prep logic) and build the output workbook.
-  status('Normalizing and computing summaries…'); progress(70);
-  const normRows = normalizeGroupingColumns(rows);
+  status('Normalizing and computing summaries…'); progress(72);
+  const normRows = normalizeGroupingColumns(rosterRows);
   const summaries = computeSummaries(normRows);
   const mauDist = computeSchoolDistribution(normRows);
 
@@ -806,11 +924,12 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
   return {
     blob,
     filename: adobeDefaultFilename(),
-    totalStudents: rows.length,
+    totalStudents: rosterRows.length,
     mauStudents: mauYes,
     logStudents: logYes,
     createdCount: createdList.length,
     otherCount: otherList.length,
+    rosterFromCache: fromCache,
     summaries,
     mauDist,
     emailFileStats: emailRes.fileStats

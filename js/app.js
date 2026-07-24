@@ -380,9 +380,14 @@
           "so the file was downloaded to your browser's Downloads folder instead.";
       if (outcome === 'saved') paLog(`Saved as: ${saveHandle.name}`, 'success');
 
+      const rosterNote = result.rosterFromCache
+        ? 'Roster: loaded from cache (fast — no re-download)'
+        : 'Roster: parsed fresh (first run for this template version)';
+
       const msg =
         'Process + Adobe Preparation complete!\n\n' +
-        `File: ${result.filename}\n\n` +
+        `File: ${result.filename}\n` +
+        `${rosterNote}\n\n` +
         `Content-log files: ${paFiles.length}\n` +
         `Emails → Completed MAU (Mapping col A): ${result.createdCount.toLocaleString()}\n` +
         `Emails → Logged In (Mapping col C): ${result.otherCount.toLocaleString()}\n\n` +
@@ -391,6 +396,7 @@
         `Marked Logged In: ${result.logStudents.toLocaleString()}\n\n` +
         `MAU % cutoff (schools):\n${cutoffLines}`;
 
+      paLog(result.rosterFromCache ? 'Roster loaded from cache (no re-download).' : 'Roster parsed fresh and cached for next time.', 'info');
       paLog(`Done — ${result.mauStudents.toLocaleString()} MAU / ${result.logStudents.toLocaleString()} logged-in of ${result.totalStudents.toLocaleString()} students`, 'success');
       setStatus(paStatus,
         outcome === 'saved' ? 'Final summary saved!' : 'Final summary downloaded to your Downloads folder.',
