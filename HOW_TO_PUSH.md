@@ -71,12 +71,25 @@ git push origin main
   `Adobe Email`, and produces the final summary + a filled `Mapping` sheet.
 - Your template is never changed and no temp files are left behind.
 
-**Important — this tab is heavy** (~24 MB / 200k-row template):
-- Use **Chrome or Edge on a desktop**, served over **http/https** (the deployed
-  site or a local server — *not* a `file://` double-click).
-- Expect **~15–40 seconds** and high memory (~1.5–2 GB) while it runs. Low-RAM
-  machines may struggle; a normal desktop that can open the template in Excel is
-  fine.
+### Speed (why it's fast now)
+The template is a static 24 MB / 200k-row file, so parsing it every run was the
+slow part (~10 s just to parse, plus the download). The app now **parses it once
+and caches a compact copy in your browser** (in memory for the session and in
+IndexedDB across reloads), keyed to the template's version:
+- **First run** (or the first run after you update the template): downloads +
+  parses once — roughly **~10–30 s**.
+- **Every run after that: ~1–2 s** — no re-download, no re-parse. The result
+  dialog and log tell you whether the roster came from cache.
+- When you **update the template** and push it, its version changes, so the app
+  automatically re-parses once and refreshes the cache — no stale data.
+- Clearing your browser data / site storage just triggers one more one-time
+  parse; nothing breaks.
+
+**Still applies:**
+- Use **Chrome or Edge on a desktop**, over **http/https** (the deployed site or
+  a local server — *not* a `file://` double-click).
+- The first (uncached) parse uses ~1.5–2 GB RAM briefly; a normal desktop that
+  can open the template in Excel is fine. Cached runs are much lighter.
 - The output intentionally does **not** include the 200k-row `Raw_Data` sheet
   (writing it in the browser runs out of memory, and you already have the roster
   in the template). It contains the styled State / LIC / Lead / Manager / MAU

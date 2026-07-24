@@ -1,0 +1,146 @@
+From 6f27799796488ecfe39fced4c2a1e9522400b6be Mon Sep 17 00:00:00 2001
+From: Devarsh <devarsh.joshi@ei.study>
+Date: Tue, 21 Jul 2026 10:49:44 +0000
+Subject: [PATCH] Harden save flow: warn when folder picker unavailable; add
+ folder prompt to Email tab
+
+- Adobe & Email tabs: when the browser can't show a folder picker
+  (Firefox/Safari/file://), tell the user clearly instead of silently
+  downloading, both in the status line and the result dialog.
+- Email Extractor now asks where to save (like the Adobe tab) instead of
+  auto-downloading; removes the unconditional triggerDownload.
+- processing.js: add emailDefaultFilename() and saveFolderPickerSupported()
+  and export them.
+---
+ js/app.js        | 44 ++++++++++++++++++++++++++++++++++++++------
+ js/processing.js | 20 +++++++++++++++++++-
+ 2 files changed, 57 insertions(+), 7 deletions(-)
+
+diff --git a/js/app.js b/js/app.js
+index a4c758e..8a44a93 100644
+--- a/js/app.js
++++ b/js/app.js
+@@ -119,12 +119,25 @@
+ 
+   processEmailBtn.addEventListener('click', async () => {
+     if (!emailFiles.length) return;
++
++    // Ask where to save BEFORE processing — the folder picker needs a fresh
++    // user gesture that expires once async work starts.
++    const pickerSupported = Processing.saveFolderPickerSupported();
++    const saveHandle = await Processing.pickSaveHandle(Processing.emailDefaultFilename());
++    if (saveHandle === null) {
++      setStatus(emailStatus, 'Save cancelled — nothing was processed');
++      return;
++    }
++
+     processEmailBtn.disabled = true;
+     clearEmailBtn.disabled = true;
+     setProgress(emailProgress, 0);
+     clearLog();
+     addLogEntry('Starting email extraction...', 'info');
+     addLogEntry(`Processing ${emailFiles.length} file(s)`, 'info');
++    if (!pickerSupported) {
++      addLogEntry("Folder picker unavailable in this browser — output will download to your Downloads folder. Use Chrome or Edge over http/https to choose a folder.", 'error');
++    }
+ 
+     try {
+       const result = await Processing.extractEmails(
+@@ -161,11 +174,18 @@
+ 
+       addLogEntry('', 'info');
+       addLogEntry(`TOTAL UNIQUE EMAILS: ${(result.createdList.length + result.otherList.length).toLocaleString()}`, 'success');
+-      setStatus(emailStatus, 'Processing completed successfully!', 'success');
+-      showModal('Processing Complete', summary, { blob: result.blob, filename: result.filename });
+ 
+-      // Auto-trigger download too (mirrors os.startfile behavior in spirit)
+-      Processing.triggerDownload(result.blob, result.filename);
++      const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
++      const savedNote = outcome === 'saved'
++        ? `\n\nSaved as: ${saveHandle.name}`
++        : "\n\nThis browser can't open a folder picker (only Chrome or Edge over http/https can), " +
++          "so the file was downloaded to your browser's Downloads folder instead.";
++      if (outcome === 'saved') addLogEntry(`Saved as: ${saveHandle.name}`, 'success');
++
++      setStatus(emailStatus,
++        outcome === 'saved' ? 'Processing complete — file saved!' : 'Processing complete — file downloaded to Downloads folder.',
++        'success');
++      showModal('Processing Complete', summary + savedNote, { blob: result.blob, filename: result.filename });
+ 
+     } catch (err) {
+       console.error(err);
+@@ -207,11 +227,20 @@
+ 
+     // Ask where to save BEFORE processing — the picker needs a fresh user
+     // gesture, and the gesture expires while the workbook is being built.
++    const pickerSupported = Processing.saveFolderPickerSupported();
+     const saveHandle = await Processing.pickSaveHandle(Processing.adobeDefaultFilename());
+     if (saveHandle === null) {
+       setStatus(adobeStatus, 'Save cancelled — nothing was processed');
+       return;
+     }
++    // saveHandle === undefined → the browser can't show a folder picker, so the
++    // file will be downloaded instead. Tell the user why up front rather than
++    // silently downloading.
++    if (!pickerSupported) {
++      setStatus(adobeStatus,
++        "This browser can't open a folder picker — the file will download to your Downloads folder. Open the app in Chrome or Edge (over http/https, not a file:// double-click) to choose a folder.",
++        'error');
++    }
+ 
+     prepareAdobeBtn.disabled = true;
+     setProgress(adobeProgress, 0);
+@@ -244,9 +273,12 @@
+       const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
+       const savedNote = outcome === 'saved'
+         ? `\n\nSaved as: ${saveHandle.name}`
+-        : "\n\nDownloaded to your browser's downloads folder.";
++        : "\n\nThis browser can't open a folder picker (only Chrome or Edge over http/https can), " +
++          "so the file was downloaded to your browser's Downloads folder instead.";
+ 
+-      setStatus(adobeStatus, 'Adobe summary saved!', 'success');
++      setStatus(adobeStatus,
++        outcome === 'saved' ? 'Adobe summary saved!' : 'Adobe summary downloaded to your Downloads folder.',
++        'success');
+       showModal('Adobe Data Prepared', msg + savedNote, { blob: result.blob, filename: result.filename });
+ 
+     } catch (err) {
+diff --git a/js/processing.js b/js/processing.js
+index 30c5ac0..742c43f 100644
+--- a/js/processing.js
++++ b/js/processing.js
+@@ -116,6 +116,22 @@ function adobeDefaultFilename() {
+   return `Adobe_LoggedinDetais(${dateStamp()}).xlsx`;
+ }
+ 
++/** Default output name for the email extractor — known before processing runs. */
++function emailDefaultFilename() {
++  return `Processed_User_Emails_${dateStamp()}.xlsx`;
++}
++
++/**
++ * True when the browser can show a native "choose folder / save as" dialog.
++ * Only Chromium browsers (Chrome, Edge, Opera) over http(s) expose this;
++ * Firefox, Safari, and pages opened via file:// cannot, and will fall back to
++ * a normal download. Used to warn the user up front instead of silently
++ * downloading.
++ */
++function saveFolderPickerSupported() {
++  return typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
++}
++
+ /* ============================================================
+  * FEATURE 1 — Email extractor
+  * Required columns: 'Action', 'User Email'
+@@ -635,5 +651,7 @@ window.Processing = {
+   triggerDownload,
+   saveBlob,
+   pickSaveHandle,
+-  adobeDefaultFilename
++  adobeDefaultFilename,
++  emailDefaultFilename,
++  saveFolderPickerSupported
+ };
+-- 
+2.34.1
+
