@@ -105,6 +105,21 @@
       <button id="runPaAdobe" class="btn btn-primary" disabled>Process + Prepare</button>
     </div>
 
+    <div class="pa-repeat-wrap" style="margin-top:14px;">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="paRepeatChk">
+        <span>Also include <strong>repeated-user analysis</strong> (compare this week to last week's MAU)</span>
+      </label>
+      <div id="paRepeatRow" class="hidden" style="margin-top:10px;">
+        <label class="btn btn-secondary">
+          Choose Last Week's Report
+          <input type="file" id="paLastWeek" accept=".xlsx,.xls" hidden>
+        </label>
+        <span id="paLastWeekLabel" class="muted" style="margin-left:10px;">No last-week file selected</span>
+        <p class="muted" style="margin-top:6px;">Upload the report <em>this tool produced last week</em>. Adds <strong>Repeated MAU</strong> &amp; <strong>New MAU</strong> columns to every summary, plus <strong>Repeated_Students</strong>, <strong>Pending_Students</strong> (follow-up), and a <strong>Repeated_Summary</strong> sheet.</p>
+      </div>
+    </div>
+
     <div class="file-list-wrap">
       <div class="file-list-label">Selected Files:</div>
       <ul id="paFileList" class="file-list"></ul>
