@@ -415,36 +415,41 @@ function appendTotalsRow(rows, labelCol, blankCols = []) {
   return [...rows, totals];
 }
 
-function computeSummaries(rows) {
-  // Add helper bools
+function computeSummaries(rows, withRepeated = false) {
+  // Add helper bools (repeated/new come from the week-over-week classification)
   const enriched = rows.map(r => ({
     ...r,
     _mau: isYes(r['Completed MAU?']) ? 1 : 0,
-    _log: isYes(r['Logged In?']) ? 1 : 0
+    _log: isYes(r['Logged In?']) ? 1 : 0,
+    _rep: r._repeated ? 1 : 0,
+    _new: r._newMau ? 1 : 0
   }));
 
   const firstCol = Object.keys(rows[0])[0];
+  // Inserted right after "MAU's Students" so the new counts sit next to it.
+  const repAgg = withRepeated ? { 'Repeated MAU': ['_rep', 'sum'], 'New MAU': ['_new', 'sum'] } : {};
 
   // State-wise
   let stateDf = groupAgg(enriched, ['state'], {
     'Total Students': [firstCol, 'count'],
     "MAU's Students": ['_mau', 'sum'],
+    ...repAgg,
     'Logged in students': ['_log', 'sum'],
     'LICs Managed': ['LIC_Name', 'nunique'],
     'Schools Managed': ['schoolCode', 'nunique'],
     'Districts Covered': ['district', 'nunique']
   });
-  stateDf = stateDf.map(r => ({
-    States: r.state,
-    'Total Students': r['Total Students'],
-    "MAU's Students": r["MAU's Students"],
-    'Logged in students': r['Logged in students'],
-    'LICs Managed': r['LICs Managed'],
-    'Schools Managed': r['Schools Managed'],
-    'Districts Covered': r['Districts Covered'],
-    '% MAU Completion': safePct(r["MAU's Students"], r['Total Students']),
-    '% logged in': safePct(r['Logged in students'], r['Total Students'])
-  }));
+  stateDf = stateDf.map(r => {
+    const o = { States: r.state, 'Total Students': r['Total Students'], "MAU's Students": r["MAU's Students"] };
+    if (withRepeated) { o['Repeated MAU'] = r['Repeated MAU']; o['New MAU'] = r['New MAU']; }
+    o['Logged in students'] = r['Logged in students'];
+    o['LICs Managed'] = r['LICs Managed'];
+    o['Schools Managed'] = r['Schools Managed'];
+    o['Districts Covered'] = r['Districts Covered'];
+    o['% MAU Completion'] = safePct(r["MAU's Students"], r['Total Students']);
+    o['% logged in'] = safePct(r['Logged in students'], r['Total Students']);
+    return o;
+  });
   stateDf = sortBy(stateDf, '% MAU Completion');
   stateDf = appendTotalsRow(stateDf, 'States');
 
@@ -452,6 +457,7 @@ function computeSummaries(rows) {
   let mgrDf = groupAgg(enriched, ['Associate Manager_Name'], {
     'Total Students': [firstCol, 'count'],
     "MAU's Students": ['_mau', 'sum'],
+    ...repAgg,
     'Logged in students': ['_log', 'sum'],
     'LICs Managed': ['LIC_Name', 'nunique'],
     'Schools Managed': ['schoolCode', 'nunique'],
@@ -469,6 +475,7 @@ function computeSummaries(rows) {
   let leadDf = groupAgg(enriched, ['Project Lead_Name', 'Associate Manager_Name'], {
     'Total Students': [firstCol, 'count'],
     "MAU's Students": ['_mau', 'sum'],
+    ...repAgg,
     'Logged in students': ['_log', 'sum'],
     'LICs Under Management': ['LIC_Name', 'nunique'],
     'Total Schools': ['schoolCode', 'nunique']
@@ -487,6 +494,7 @@ function computeSummaries(rows) {
   let licDf = groupAgg(enriched, licCols, {
     'Total Students': [firstCol, 'count'],
     "MAU's Students": ['_mau', 'sum'],
+    ...repAgg,
     'Logged in students': ['_log', 'sum']
   });
   licDf = licDf.map(r => ({
@@ -497,6 +505,63 @@ function computeSummaries(rows) {
   licDf = sortBy(licDf, '% MAU Completion');
 
   return { stateDf, licDf, leadDf, mgrDf };
+}
+
+/**
+ * Read last week's report (an .xlsx this tool produced) and return the set of
+ * lower-cased Adobe Emails that had Completed MAU? = Yes. Prefers the Raw_Data
+ * sheet; falls back to the Mapping sheet's column A (Completed-MAU emails).
+ */
+async function readLastWeekMAU(file) {
+  const buf = await readFileAsArrayBuffer(file);
+  const wb = XLSX.read(buf, { type: 'array' });
+  const set = new Set();
+  if (wb.SheetNames.includes('Raw_Data')) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['Raw_Data'], { defval: '', raw: false });
+    for (const r of rows) {
+      if (String(r['Completed MAU?'] ?? '').trim().toLowerCase() === 'yes') {
+        const em = String(r['Adobe Email'] ?? '').trim().toLowerCase();
+        if (em) set.add(em);
+      }
+    }
+  }
+  if (set.size === 0 && wb.SheetNames.includes('Mapping')) {
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets['Mapping'], { header: 1, defval: '' });
+    for (const row of aoa) {
+      const em = String(row[0] ?? '').trim().toLowerCase();
+      if (em && em.includes('@')) set.add(em);
+    }
+  }
+  if (set.size === 0) throw new Error("Could not find last week's MAU students in that file. Upload a report this tool generated (with a Raw_Data or Mapping sheet).");
+  return set;
+}
+
+/** State-wise summary of the week-over-week groups (one 'Repeated summary' sheet). */
+function computeRepeatedSummary(rows) {
+  const byState = new Map();
+  let T = { mau: 0, rep: 0, neu: 0, pend: 0 };
+  for (const r of rows) {
+    const st = r['state'] == null || String(r['state']).trim() === '' ? '(blank)' : r['state'];
+    if (!byState.has(st)) byState.set(st, { mau: 0, rep: 0, neu: 0, pend: 0 });
+    const s = byState.get(st);
+    if (r['Completed MAU?'] === 'Yes') { s.mau++; T.mau++; }
+    if (r._repeated) { s.rep++; T.rep++; }
+    if (r._newMau) { s.neu++; T.neu++; }
+    if (r._pending) { s.pend++; T.pend++; }
+  }
+  const rowsOut = [...byState.entries()]
+    .map(([st, s]) => ({
+      States: st, 'MAU this week': s.mau, 'Repeated (both weeks)': s.rep,
+      'New (this week only)': s.neu, 'Pending (last week, not this)': s.pend,
+      '% Repeated of MAU': safePct(s.rep, s.mau)
+    }))
+    .sort((a, b) => b['MAU this week'] - a['MAU this week']);
+  rowsOut.push({
+    States: 'Total', 'MAU this week': T.mau, 'Repeated (both weeks)': T.rep,
+    'New (this week only)': T.neu, 'Pending (last week, not this)': T.pend,
+    '% Repeated of MAU': safePct(T.rep, T.mau)
+  });
+  return rowsOut;
 }
 
 function computeSchoolDistribution(rows) {
@@ -677,23 +742,52 @@ async function buildAdobeWorkbook(rawRows, summaries, mauDist) {
 
 /** Student-level Raw_Data sheet (one row per student, with MAU/Login flags). */
 const PA_RAW_COLS = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'Project Name', 'schoolCode', 'district', 'state', 'Adobe Email', 'Completed MAU?', 'Logged In?'];
-function addRawDataSheet(wb, rows) {
-  const ws = wb.addWorksheet('Raw_Data', { views: [{ state: 'frozen', ySplit: 1 }] });
-  ws.columns = PA_RAW_COLS.map(h => ({ header: h, key: h, width: Math.min(Math.max(h.length + 2, 12), 30) }));
+// Repeated / Pending student lists also show last-week status.
+const PA_LIST_COLS = PA_RAW_COLS.concat(['Was MAU Last Week', 'MAU Status']);
+
+/** A plain data sheet: red header row + rows for the given columns. */
+function addRowSheet(wb, sheetName, cols, rows) {
+  const ws = wb.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = cols.map(h => ({ header: h, key: h, width: Math.min(Math.max(h.length + 2, 12), 30) }));
   const hr = ws.getRow(1);
   hr.eachCell(cell => { cell.fill = XL_TITLE_FILL; cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }; cell.alignment = XL_CENTER; });
-  const data = rows.map(r => PA_RAW_COLS.map(c => { const v = r[c]; return (v === undefined || v === null || v === '') ? null : v; }));
-  ws.addRows(data);
+  const data = (rows || []).map(r => cols.map(c => { const v = r[c]; return (v === undefined || v === null || v === '') ? null : v; }));
+  if (data.length) ws.addRows(data);
+}
+function addRawDataSheet(wb, rows) { addRowSheet(wb, 'Raw_Data', PA_RAW_COLS, rows); }
+
+/** Render one styled titled table (merged title row + header + data + Total row). */
+function addTitledTableSheet(wb, sheetName, title, dfRows) {
+  if (!dfRows || !dfRows.length) return;
+  const ws = wb.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 2 }] });
+  const headers = Object.keys(dfRows[0]);
+  const pctIdx = new Set(headers.map((h, i) => h.startsWith('%') ? i : -1).filter(i => i >= 0));
+  const widths = headers.map(h => Math.min(Math.max(String(h).length + 3, 12), 42));
+  ws.columns = headers.map((h, i) => ({ key: h, width: widths[i] }));
+  const tr = ws.addRow([title]); if (headers.length > 1) ws.mergeCells(1, 1, 1, headers.length); tr.height = 28;
+  const tc = ws.getCell(1, 1); tc.fill = XL_TITLE_FILL; tc.font = XL_TITLE_FONT; tc.alignment = XL_CENTER; tc.border = XL_THIN_BORDER;
+  const hr = ws.addRow(headers); hr.eachCell(c => { c.fill = XL_SUMMARY_HEADER_FILL; c.font = XL_SUMMARY_HEADER_FONT; c.alignment = XL_CENTER; c.border = XL_THIN_BORDER; });
+  dfRows.forEach((r, ri) => {
+    const row = ws.addRow(headers.map(h => r[h]));
+    const isTotal = ri === dfRows.length - 1 && r[headers[0]] === 'Total';
+    row.eachCell({ includeEmpty: true }, (cell, col) => { cell.alignment = XL_CENTER; cell.border = XL_THIN_BORDER; if (pctIdx.has(col - 1)) cell.numFmt = '0.0%'; if (isTotal) { cell.fill = XL_SUMMARY_HEADER_FILL; cell.font = XL_SUMMARY_HEADER_FONT; } });
+  });
 }
 
 /**
- * Feature-3 output workbook: styled summary sheets + the full student-level
- * Raw_Data sheet + the filled Mapping sheet. (Raw_Data is ~200k rows but only
- * 10 columns, which stays within a desktop browser's memory budget.)
+ * Feature-3 output workbook: styled summary sheets + full student-level Raw_Data
+ * + filled Mapping. When `repeated.summary` is provided (week-over-week analysis
+ * on), also adds a Repeated summary, a Repeated-students list, and a
+ * Pending-students (follow-up) list.
  */
-async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList, studentRows) {
+async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList, studentRows, repeated) {
   const wb = new ExcelJS.Workbook();
   addSummarySheets(wb, summaries, mauDist);
+  if (repeated && repeated.summary) {
+    addTitledTableSheet(wb, 'Repeated_Summary', 'Repeated / New / Pending — vs last week', repeated.summary);
+    addRowSheet(wb, 'Repeated_Students', PA_LIST_COLS, studentRows.filter(r => r['MAU Status'] === 'Repeated'));
+    addRowSheet(wb, 'Pending_Students', PA_LIST_COLS, studentRows.filter(r => r['MAU Status'] === 'Pending'));
+  }
   if (studentRows && studentRows.length) addRawDataSheet(wb, studentRows);
   addMappingSheet(wb, createdList, otherList);
   const buf = await wb.xlsx.writeBuffer();
@@ -885,7 +979,7 @@ async function loadRosterTSV(status, templateArrayBuffer) {
  * @param templateArrayBuffer  optional pre-loaded template bytes (used by tests);
  *        when omitted, the roster is loaded (and cached) from ADOBE_TEMPLATE_URL.
  */
-async function processAndPrepareAdobe(files, onProgress, onStatus, templateArrayBuffer) {
+async function processAndPrepareAdobe(files, onProgress, onStatus, templateArrayBuffer, opts = {}) {
   const status = onStatus || (() => {});
   const progress = onProgress || (() => {});
 
@@ -923,14 +1017,42 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
     r['Logged In?'] = log ? 'Yes' : 'No';
   }
 
+  // 3b. Optional week-over-week analysis: classify each student vs last week's MAU.
+  let lastWeekMAU = opts.lastWeekMAU || null;
+  if (!lastWeekMAU && opts.lastWeekFile) {
+    status("Reading last week's MAU report…");
+    lastWeekMAU = await readLastWeekMAU(opts.lastWeekFile);
+  }
+  const withRepeated = !!(lastWeekMAU && lastWeekMAU.size);
+  let repStats = null;
+  if (withRepeated) {
+    status('Comparing to last week (repeated / new / pending)…'); progress(66);
+    let repeated = 0, newMau = 0, pending = 0;
+    for (const r of rosterRows) {
+      const em = String(r[TEMPLATE_EMAIL_COL] == null ? '' : r[TEMPLATE_EMAIL_COL]).trim().toLowerCase();
+      const thisMau = r['Completed MAU?'] === 'Yes';
+      const wasMau = em !== '' && lastWeekMAU.has(em);
+      r['Was MAU Last Week'] = wasMau ? 'Yes' : 'No';
+      if (thisMau && wasMau) { r['MAU Status'] = 'Repeated'; r._repeated = 1; r._newMau = 0; r._pending = 0; repeated++; }
+      else if (thisMau && !wasMau) { r['MAU Status'] = 'New'; r._repeated = 0; r._newMau = 1; r._pending = 0; newMau++; }
+      else if (!thisMau && wasMau) { r['MAU Status'] = 'Pending'; r._repeated = 0; r._newMau = 0; r._pending = 1; pending++; }
+      else { r['MAU Status'] = ''; r._repeated = 0; r._newMau = 0; r._pending = 0; }
+    }
+    repStats = { repeated, newMau, pending, lastWeekMauCount: lastWeekMAU.size };
+  }
+
   // 4. Aggregate (reuses the Adobe-prep logic) and build the output workbook.
   status('Normalizing and computing summaries…'); progress(72);
   const normRows = normalizeGroupingColumns(rosterRows);
-  const summaries = computeSummaries(normRows);
+  const summaries = computeSummaries(normRows, withRepeated);
   const mauDist = computeSchoolDistribution(normRows);
+  const repeatedSummary = withRepeated ? computeRepeatedSummary(normRows) : null;
 
   status('Building final Excel file (incl. student-level Raw_Data)…'); progress(90);
-  const blob = await buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList, normRows);
+  const blob = await buildProcessedAdobeWorkbook(
+    summaries, mauDist, createdList, otherList, normRows,
+    repeatedSummary ? { summary: repeatedSummary } : null
+  );
   progress(100);
 
   return {
@@ -942,6 +1064,7 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
     createdCount: createdList.length,
     otherCount: otherList.length,
     rosterFromCache: fromCache,
+    repeated: repStats,
     summaries,
     mauDist,
     emailFileStats: emailRes.fileStats

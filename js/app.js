@@ -339,8 +339,27 @@
     setStatus(paStatus, 'File list cleared');
   });
 
+  // Repeated-user analysis (compare this week to last week's MAU).
+  const paRepeatChk = document.getElementById('paRepeatChk');
+  const paRepeatRow = document.getElementById('paRepeatRow');
+  const paLastWeekInput = document.getElementById('paLastWeek');
+  const paLastWeekLabel = document.getElementById('paLastWeekLabel');
+  let paLastWeekFile = null;
+
+  paRepeatChk.addEventListener('change', () => {
+    paRepeatRow.classList.toggle('hidden', !paRepeatChk.checked);
+  });
+  paLastWeekInput.addEventListener('change', e => {
+    paLastWeekFile = (e.target.files && e.target.files[0]) || null;
+    paLastWeekLabel.textContent = paLastWeekFile ? `Selected: ${paLastWeekFile.name}` : 'No last-week file selected';
+  });
+
   runPaBtn.addEventListener('click', async () => {
     if (!paFiles.length) return;
+    if (paRepeatChk.checked && !paLastWeekFile) {
+      setStatus(paStatus, "Repeated analysis is on — please choose last week's report file first.", 'error');
+      return;
+    }
 
     // Ask where to save the FINAL file first — the picker needs a fresh user
     // gesture that would expire during the (long) template load.
@@ -365,13 +384,23 @@
       const result = await Processing.processAndPrepareAdobe(
         paFiles,
         pct => setProgress(paProgress, pct),
-        msg => { setStatus(paStatus, msg); paLog(msg, 'info'); }
+        msg => { setStatus(paStatus, msg); paLog(msg, 'info'); },
+        undefined,
+        (paRepeatChk.checked && paLastWeekFile) ? { lastWeekFile: paLastWeekFile } : {}
       );
 
       const cutoffLines = result.mauDist
         .slice(0, -1)
         .map(r => `  ${r['MAU % Range']}: ${r['No. of Schools']}`)
         .join('\n');
+
+      const repeatLines = result.repeated
+        ? '\n\nRepeated-user analysis (vs last week):\n' +
+          `  Repeated (both weeks): ${result.repeated.repeated.toLocaleString()}\n` +
+          `  New (this week only): ${result.repeated.newMau.toLocaleString()}\n` +
+          `  Pending (last week, not this — follow up): ${result.repeated.pending.toLocaleString()}\n` +
+          `  Last week's MAU total: ${result.repeated.lastWeekMauCount.toLocaleString()}`
+        : '';
 
       const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
       const savedNote = outcome === 'saved'
@@ -394,9 +423,13 @@
         `Students in roster: ${result.totalStudents.toLocaleString()}\n` +
         `Marked Completed MAU: ${result.mauStudents.toLocaleString()}\n` +
         `Marked Logged In: ${result.logStudents.toLocaleString()}\n\n` +
-        `MAU % cutoff (schools):\n${cutoffLines}`;
+        `MAU % cutoff (schools):\n${cutoffLines}` +
+        repeatLines;
 
       paLog(result.rosterFromCache ? 'Roster loaded from cache (no re-download).' : 'Roster parsed fresh and cached for next time.', 'info');
+      if (result.repeated) {
+        paLog(`Repeated: ${result.repeated.repeated.toLocaleString()} · New: ${result.repeated.newMau.toLocaleString()} · Pending (follow-up): ${result.repeated.pending.toLocaleString()}`, 'success');
+      }
       paLog(`Done — ${result.mauStudents.toLocaleString()} MAU / ${result.logStudents.toLocaleString()} logged-in of ${result.totalStudents.toLocaleString()} students`, 'success');
       setStatus(paStatus,
         outcome === 'saved' ? 'Final summary saved!' : 'Final summary downloaded to your Downloads folder.',
