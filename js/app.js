@@ -396,9 +396,9 @@
 
       const repeatLines = result.repeated
         ? '\n\nRepeated-user analysis (vs last week):\n' +
-          `  Repeated (both weeks): ${result.repeated.repeated.toLocaleString()}\n` +
-          `  New (this week only): ${result.repeated.newMau.toLocaleString()}\n` +
-          `  Pending (last week, not this — follow up): ${result.repeated.pending.toLocaleString()}\n` +
+          `  New MAU (this week only): ${result.repeated.newMau.toLocaleString()}\n` +
+          `  Repeated MAU (both weeks, excluded from MAU count): ${result.repeated.repeated.toLocaleString()}\n` +
+          `  Pending (never completed either week — follow up): ${result.repeated.pending.toLocaleString()}\n` +
           `  Last week's MAU total: ${result.repeated.lastWeekMauCount.toLocaleString()}`
         : '';
 
@@ -408,6 +408,14 @@
         : "\n\nThis browser can't open a folder picker (only Chrome or Edge over http/https can), " +
           "so the file was downloaded to your browser's Downloads folder instead.";
       if (outcome === 'saved') paLog(`Saved as: ${saveHandle.name}`, 'success');
+
+      // The pending (never-MAU) follow-up list ships as a companion CSV.
+      let pendingNote = '';
+      if (result.pendingCsvBlob) {
+        Processing.triggerDownload(result.pendingCsvBlob, result.pendingCsvName);
+        pendingNote = `\n\nPending follow-up list downloaded separately as ${result.pendingCsvName} (in your Downloads).`;
+        paLog(`Pending follow-up list saved as ${result.pendingCsvName} (Downloads).`, 'info');
+      }
 
       const rosterNote = result.rosterFromCache
         ? 'Roster: loaded from cache (fast — no re-download)'
@@ -424,7 +432,7 @@
         `Marked Completed MAU: ${result.mauStudents.toLocaleString()}\n` +
         `Marked Logged In: ${result.logStudents.toLocaleString()}\n\n` +
         `MAU % cutoff (schools):\n${cutoffLines}` +
-        repeatLines;
+        repeatLines + pendingNote;
 
       paLog(result.rosterFromCache ? 'Roster loaded from cache (no re-download).' : 'Roster parsed fresh and cached for next time.', 'info');
       if (result.repeated) {

@@ -426,13 +426,15 @@ function computeSummaries(rows, withRepeated = false) {
   }));
 
   const firstCol = Object.keys(rows[0])[0];
-  // Inserted right after "MAU's Students" so the new counts sit next to it.
-  const repAgg = withRepeated ? { 'Repeated MAU': ['_rep', 'sum'], 'New MAU': ['_new', 'sum'] } : {};
+  // When week-over-week analysis is on, "MAU's Students" counts only NEW MAU
+  // (repeated students are excluded from the count and shown in their own column).
+  const mauCol = withRepeated ? '_new' : '_mau';
+  const repAgg = withRepeated ? { 'Repeated MAU': ['_rep', 'sum'] } : {};
 
   // State-wise
   let stateDf = groupAgg(enriched, ['state'], {
     'Total Students': [firstCol, 'count'],
-    "MAU's Students": ['_mau', 'sum'],
+    "MAU's Students": [mauCol, 'sum'],
     ...repAgg,
     'Logged in students': ['_log', 'sum'],
     'LICs Managed': ['LIC_Name', 'nunique'],
@@ -441,7 +443,7 @@ function computeSummaries(rows, withRepeated = false) {
   });
   stateDf = stateDf.map(r => {
     const o = { States: r.state, 'Total Students': r['Total Students'], "MAU's Students": r["MAU's Students"] };
-    if (withRepeated) { o['Repeated MAU'] = r['Repeated MAU']; o['New MAU'] = r['New MAU']; }
+    if (withRepeated) { o['Repeated MAU'] = r['Repeated MAU']; }
     o['Logged in students'] = r['Logged in students'];
     o['LICs Managed'] = r['LICs Managed'];
     o['Schools Managed'] = r['Schools Managed'];
@@ -456,7 +458,7 @@ function computeSummaries(rows, withRepeated = false) {
   // Manager-wise
   let mgrDf = groupAgg(enriched, ['Associate Manager_Name'], {
     'Total Students': [firstCol, 'count'],
-    "MAU's Students": ['_mau', 'sum'],
+    "MAU's Students": [mauCol, 'sum'],
     ...repAgg,
     'Logged in students': ['_log', 'sum'],
     'LICs Managed': ['LIC_Name', 'nunique'],
@@ -474,7 +476,7 @@ function computeSummaries(rows, withRepeated = false) {
   // Lead-wise
   let leadDf = groupAgg(enriched, ['Project Lead_Name', 'Associate Manager_Name'], {
     'Total Students': [firstCol, 'count'],
-    "MAU's Students": ['_mau', 'sum'],
+    "MAU's Students": [mauCol, 'sum'],
     ...repAgg,
     'Logged in students': ['_log', 'sum'],
     'LICs Under Management': ['LIC_Name', 'nunique'],
@@ -493,7 +495,7 @@ function computeSummaries(rows, withRepeated = false) {
   if ('Project Name' in enriched[0]) licCols.push('Project Name');
   let licDf = groupAgg(enriched, licCols, {
     'Total Students': [firstCol, 'count'],
-    "MAU's Students": ['_mau', 'sum'],
+    "MAU's Students": [mauCol, 'sum'],
     ...repAgg,
     'Logged in students': ['_log', 'sum']
   });
@@ -536,31 +538,36 @@ async function readLastWeekMAU(file) {
   return set;
 }
 
-/** State-wise summary of the week-over-week groups (one 'Repeated summary' sheet). */
+/**
+ * State-wise week-over-week breakdown (the 'Repeated summary' sheet). Every
+ * student falls into exactly one bucket:
+ *   New          = MAU this week, not last week
+ *   Repeated     = MAU both weeks
+ *   Earlier only = MAU last week, not this week
+ *   Pending      = never MAU either week
+ */
 function computeRepeatedSummary(rows) {
   const byState = new Map();
-  let T = { mau: 0, rep: 0, neu: 0, pend: 0 };
+  const T = { tot: 0, neu: 0, rep: 0, prev: 0, pend: 0 };
   for (const r of rows) {
     const st = r['state'] == null || String(r['state']).trim() === '' ? '(blank)' : r['state'];
-    if (!byState.has(st)) byState.set(st, { mau: 0, rep: 0, neu: 0, pend: 0 });
+    if (!byState.has(st)) byState.set(st, { tot: 0, neu: 0, rep: 0, prev: 0, pend: 0 });
     const s = byState.get(st);
-    if (r['Completed MAU?'] === 'Yes') { s.mau++; T.mau++; }
-    if (r._repeated) { s.rep++; T.rep++; }
+    s.tot++; T.tot++;
+    const wasLast = r['Was MAU Last Week'] === 'Yes';
+    const thisMau = r['Completed MAU?'] === 'Yes';
     if (r._newMau) { s.neu++; T.neu++; }
-    if (r._pending) { s.pend++; T.pend++; }
+    else if (r._repeated) { s.rep++; T.rep++; }
+    else if (wasLast && !thisMau) { s.prev++; T.prev++; }
+    else { s.pend++; T.pend++; }   // never MAU either week
   }
-  const rowsOut = [...byState.entries()]
-    .map(([st, s]) => ({
-      States: st, 'MAU this week': s.mau, 'Repeated (both weeks)': s.rep,
-      'New (this week only)': s.neu, 'Pending (last week, not this)': s.pend,
-      '% Repeated of MAU': safePct(s.rep, s.mau)
-    }))
-    .sort((a, b) => b['MAU this week'] - a['MAU this week']);
-  rowsOut.push({
-    States: 'Total', 'MAU this week': T.mau, 'Repeated (both weeks)': T.rep,
-    'New (this week only)': T.neu, 'Pending (last week, not this)': T.pend,
-    '% Repeated of MAU': safePct(T.rep, T.mau)
+  const mk = (name, s) => ({
+    States: name, 'Total Students': s.tot, 'New MAU': s.neu, 'Repeated MAU': s.rep,
+    'Completed earlier only': s.prev, 'Pending (never MAU)': s.pend
   });
+  const rowsOut = [...byState.entries()].map(([st, s]) => mk(st, s))
+    .sort((a, b) => (b['New MAU'] + b['Repeated MAU']) - (a['New MAU'] + a['Repeated MAU']));
+  rowsOut.push(mk('Total', T));
   return rowsOut;
 }
 
@@ -782,16 +789,28 @@ function addTitledTableSheet(wb, sheetName, title, dfRows) {
  */
 async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList, studentRows, repeated) {
   const wb = new ExcelJS.Workbook();
+  const on = !!(repeated && repeated.summary);
   addSummarySheets(wb, summaries, mauDist);
-  if (repeated && repeated.summary) {
+  if (on) {
     addTitledTableSheet(wb, 'Repeated_Summary', 'Repeated / New / Pending — vs last week', repeated.summary);
     addRowSheet(wb, 'Repeated_Students', PA_LIST_COLS, studentRows.filter(r => r['MAU Status'] === 'Repeated'));
-    addRowSheet(wb, 'Pending_Students', PA_LIST_COLS, studentRows.filter(r => r['MAU Status'] === 'Pending'));
+    // The Pending list (never-MAU) can be ~190k rows — too large to build as a
+    // second big sheet in a browser without running out of memory. It ships as a
+    // companion CSV instead; Raw_Data below carries the MAU Status column so
+    // pending students are still filterable right here in the workbook.
   }
-  if (studentRows && studentRows.length) addRawDataSheet(wb, studentRows);
+  if (studentRows && studentRows.length) addRowSheet(wb, 'Raw_Data', on ? PA_LIST_COLS : PA_RAW_COLS, studentRows);
   addMappingSheet(wb, createdList, otherList);
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+/** CSV Blob for the given columns/rows (memory-cheap; used for the large Pending list). */
+function rowsToCsvBlob(cols, rows) {
+  const esc = v => { const s = (v === undefined || v === null) ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const parts = [cols.map(esc).join(',')];
+  for (const r of rows) parts.push(cols.map(c => esc(r[c])).join(','));
+  return new Blob([parts.join('\n')], { type: 'text/csv;charset=utf-8' });
 }
 
 /* ============================================================
@@ -1035,8 +1054,8 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
       r['Was MAU Last Week'] = wasMau ? 'Yes' : 'No';
       if (thisMau && wasMau) { r['MAU Status'] = 'Repeated'; r._repeated = 1; r._newMau = 0; r._pending = 0; repeated++; }
       else if (thisMau && !wasMau) { r['MAU Status'] = 'New'; r._repeated = 0; r._newMau = 1; r._pending = 0; newMau++; }
-      else if (!thisMau && wasMau) { r['MAU Status'] = 'Pending'; r._repeated = 0; r._newMau = 0; r._pending = 1; pending++; }
-      else { r['MAU Status'] = ''; r._repeated = 0; r._newMau = 0; r._pending = 0; }
+      else if (!thisMau && !wasMau) { r['MAU Status'] = 'Pending'; r._repeated = 0; r._newMau = 0; r._pending = 1; pending++; }
+      else { r['MAU Status'] = 'Completed earlier'; r._repeated = 0; r._newMau = 0; r._pending = 0; }  // MAU last week only
     }
     repStats = { repeated, newMau, pending, lastWeekMauCount: lastWeekMAU.size };
   }
@@ -1053,6 +1072,15 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
     summaries, mauDist, createdList, otherList, normRows,
     repeatedSummary ? { summary: repeatedSummary } : null
   );
+
+  // The Pending list (never-MAU) is potentially huge, so it ships as a companion
+  // CSV (memory-cheap) rather than a second big Excel sheet.
+  let pendingCsvBlob = null, pendingCsvName = null;
+  if (withRepeated) {
+    const pendRows = normRows.filter(r => r['MAU Status'] === 'Pending');
+    pendingCsvBlob = rowsToCsvBlob(PA_LIST_COLS, pendRows);
+    pendingCsvName = `Pending_Students_${dateStamp()}.csv`;
+  }
   progress(100);
 
   return {
@@ -1065,6 +1093,8 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
     otherCount: otherList.length,
     rosterFromCache: fromCache,
     repeated: repStats,
+    pendingCsvBlob,
+    pendingCsvName,
     summaries,
     mauDist,
     emailFileStats: emailRes.fileStats
