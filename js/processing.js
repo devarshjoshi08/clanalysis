@@ -675,14 +675,26 @@ async function buildAdobeWorkbook(rawRows, summaries, mauDist) {
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
+/** Student-level Raw_Data sheet (one row per student, with MAU/Login flags). */
+const PA_RAW_COLS = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'Project Name', 'schoolCode', 'district', 'state', 'Adobe Email', 'Completed MAU?', 'Logged In?'];
+function addRawDataSheet(wb, rows) {
+  const ws = wb.addWorksheet('Raw_Data', { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = PA_RAW_COLS.map(h => ({ header: h, key: h, width: Math.min(Math.max(h.length + 2, 12), 30) }));
+  const hr = ws.getRow(1);
+  hr.eachCell(cell => { cell.fill = XL_TITLE_FILL; cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }; cell.alignment = XL_CENTER; });
+  const data = rows.map(r => PA_RAW_COLS.map(c => { const v = r[c]; return (v === undefined || v === null || v === '') ? null : v; }));
+  ws.addRows(data);
+}
+
 /**
- * Feature-3 output workbook: styled summary sheets + the filled Mapping sheet.
- * Deliberately omits the 200k-row Raw_Data sheet — writing it via ExcelJS
- * exhausts browser memory, and the roster already lives in the template.
+ * Feature-3 output workbook: styled summary sheets + the full student-level
+ * Raw_Data sheet + the filled Mapping sheet. (Raw_Data is ~200k rows but only
+ * 10 columns, which stays within a desktop browser's memory budget.)
  */
-async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList) {
+async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList, studentRows) {
   const wb = new ExcelJS.Workbook();
   addSummarySheets(wb, summaries, mauDist);
+  if (studentRows && studentRows.length) addRawDataSheet(wb, studentRows);
   addMappingSheet(wb, createdList, otherList);
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -917,8 +929,8 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
   const summaries = computeSummaries(normRows);
   const mauDist = computeSchoolDistribution(normRows);
 
-  status('Building final Excel file…'); progress(90);
-  const blob = await buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList);
+  status('Building final Excel file (incl. student-level Raw_Data)…'); progress(90);
+  const blob = await buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList, normRows);
   progress(100);
 
   return {
