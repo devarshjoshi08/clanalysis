@@ -116,7 +116,7 @@
           <input type="file" id="paLastWeek" accept=".xlsx,.xls" hidden>
         </label>
         <span id="paLastWeekLabel" class="muted" style="margin-left:10px;">No last-week file selected</span>
-        <p class="muted" style="margin-top:6px;">Upload the report <em>this tool produced last week</em>. Adds <strong>Repeated MAU</strong> &amp; <strong>New MAU</strong> columns to every summary, plus <strong>Repeated_Students</strong>, <strong>Pending_Students</strong> (follow-up), and a <strong>Repeated_Summary</strong> sheet.</p>
+        <p class="muted" style="margin-top:6px;">Upload the report <em>this tool produced last week</em>. The MAU count in each summary then counts only <strong>new</strong> completions (repeated students shown in a separate <strong>Repeated MAU</strong> column). Adds a <strong>Repeated_Summary</strong> sheet, a <strong>Repeated_Students</strong> list, a <strong>MAU Status</strong> column in Raw_Data, and a separate <strong>Pending_Students CSV</strong> (students who never completed MAU either week — the follow-up list; it's a CSV because it can be ~190k rows).</p>
       </div>
     </div>
 
