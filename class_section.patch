@@ -1,0 +1,105 @@
+--- a/js/processing.js
++++ b/js/processing.js
+@@ -748,7 +748,7 @@
+ }
+ 
+ /** Student-level Raw_Data sheet (one row per student, with MAU/Login flags). */
+-const PA_RAW_COLS = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'Project Name', 'schoolCode', 'district', 'state', 'Adobe Email', 'Completed MAU?', 'Logged In?'];
++const PA_RAW_COLS = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'Project Name', 'schoolCode', 'district', 'state', 'class', 'section', 'Adobe Email', 'Completed MAU?', 'Logged In?'];
+ // Repeated / Pending student lists also show last-week status.
+ const PA_LIST_COLS = PA_RAW_COLS.concat(['Was MAU Last Week', 'MAU Status']);
+ 
+@@ -834,11 +834,47 @@
+ 
+ // Compact roster columns kept for the summaries. Everything the Adobe prep needs
+ // except the MAU/Login flags, which are recomputed per run from the content logs.
++// 'class' and 'section' are student-detail columns carried through to Raw_Data;
++// the template spells them inconsistently, so they're matched by ROSTER_ALIASES
++// below rather than by an exact header name.
+ const ROSTER_COLS = [
+   'LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'Project Name',
+-  'schoolCode', 'district', 'state', TEMPLATE_EMAIL_COL
++  'schoolCode', 'district', 'state', 'class', 'section', TEMPLATE_EMAIL_COL
+ ];
+ 
++/**
++ * Accepted header spellings per roster column, lower-cased and stripped of
++ * spaces/underscores/hyphens. The template has used 'class', 'Class',
++ * 'className', 'Grade' and 'Standard' across versions, so match all of them
++ * instead of pinning one name.
++ */
++const ROSTER_ALIASES = {
++  'class':   ['class', 'classname', 'grade', 'standard', 'studentclass', 'classgrade'],
++  'section': ['section', 'sectionname', 'sec', 'division', 'studentsection']
++};
++
++/** Normalize a header for alias matching: lower-case, drop spaces/_/-/. */
++function normHeader(h) {
++  return String(h == null ? '' : h).trim().toLowerCase().replace(/[\s_\-.]+/g, '');
++}
++
++/**
++ * Index of `col` in `header`. Exact match wins; otherwise falls back to the
++ * alias table (case- and separator-insensitive). Returns -1 when absent.
++ */
++function findRosterCol(header, col) {
++  const exact = header.indexOf(col);
++  if (exact >= 0) return exact;
++  const aliases = ROSTER_ALIASES[col];
++  if (!aliases) return -1;
++  const normed = header.map(normHeader);
++  for (const a of aliases) {
++    const i = normed.indexOf(a);
++    if (i >= 0) return i;
++  }
++  return -1;
++}
++
+ /* ------------------------------------------------------------------
+  * Roster cache — the template is a static 24 MB / 200k-row workbook, so
+  * parsing it every run is the slow part. We parse it once into a compact
+@@ -929,7 +965,10 @@
+   const missing = need.filter(n => idx(n) < 0);
+   if (missing.length) throw new Error(`Template roster is missing columns: ${missing.join(', ')}`);
+   if (idx(TEMPLATE_EMAIL_COL) < 0) throw new Error(`Template roster is missing the '${TEMPLATE_EMAIL_COL}' column.`);
+-  const colIdx = ROSTER_COLS.map(c => idx(c)); // -1 allowed only for optional cols
++  // Alias-aware lookup so class/section are picked up whatever the template
++  // calls them. -1 is allowed only for the optional cols (Project Name,
++  // class, section) — those come through blank.
++  const colIdx = ROSTER_COLS.map(c => findRosterCol(header, c));
+ 
+   const out = new Array(aoa.length);
+   out[0] = ROSTER_COLS.join('\t');
+@@ -964,6 +1003,17 @@
+ }
+ 
+ /**
++ * A cached TSV is only reusable if its header matches the columns we now
++ * extract. Guards against a stale cache from before a ROSTER_COLS change (e.g.
++ * adding class/section) silently producing an output missing those columns.
++ */
++function rosterTSVMatchesSchema(tsv) {
++  if (typeof tsv !== 'string' || !tsv) return false;
++  const nl = tsv.indexOf('\n');
++  return (nl < 0 ? tsv : tsv.slice(0, nl)).trim() === ROSTER_COLS.join('\t');
++}
++
++/**
+  * Obtain the compact roster TSV, using (in order): this session's memory cache,
+  * the persistent IndexedDB cache (keyed by the template version), then a fresh
+  * download + parse. Returns { tsv, fromCache }.
+@@ -974,12 +1024,12 @@
+   }
+   const key = await rosterValidator();
+   if (key) {
+-    if (_rosterMemCache && _rosterMemCache.key === key) {
++    if (_rosterMemCache && _rosterMemCache.key === key && rosterTSVMatchesSchema(_rosterMemCache.tsv)) {
+       status('Using cached roster — no re-download needed.');
+       return { tsv: _rosterMemCache.tsv, fromCache: true };
+     }
+     const cached = await idbGetRoster(key);
+-    if (cached) {
++    if (cached && rosterTSVMatchesSchema(cached)) {
+       status('Using cached roster — no re-download needed.');
+       _rosterMemCache = { key, tsv: cached };
+       return { tsv: cached, fromCache: true };
