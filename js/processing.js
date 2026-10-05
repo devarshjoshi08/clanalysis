@@ -622,8 +622,31 @@ function computeRepeatedSummary(rows) {
   return rowsOut;
 }
 
-function computeSchoolDistribution(rows) {
-  // Group by schoolCode → {total, mau}, then bucket
+/**
+ * Tab 4 With-Repeated summaries: show New MAU, Repeated and Total active side by
+ * side. computeSummaries() already counts "MAU's Students" as NEW MAU only and
+ * has a 'Repeated MAU' column when week-over-week is on; here we rename those
+ * for the date-range report and add Total active (New + Repeated) + % Total active.
+ * Tab 3 never calls this, so its columns stay exactly as they were.
+ */
+function relabelRangeSummaries(summaries) {
+  const conv = df => (df || []).map(r => {
+    const o = {};
+    const totalActive = (Number(r["MAU's Students"]) || 0) + (Number(r['Repeated MAU']) || 0);
+    for (const [k, v] of Object.entries(r)) {
+      if (k === "MAU's Students") o['New MAU'] = v;
+      else if (k === 'Repeated MAU') { o['Repeated'] = v; o['Total active'] = totalActive; }
+      else if (k === '% MAU Completion') { o['% MAU (New)'] = v; o['% Total active'] = safePct(totalActive, r['Total Students']); }
+      else o[k] = v;
+    }
+    return o;
+  });
+  return { stateDf: conv(summaries.stateDf), licDf: conv(summaries.licDf), leadDf: conv(summaries.leadDf), mgrDf: conv(summaries.mgrDf) };
+}
+
+function computeSchoolDistribution(rows, newOnly = false) {
+  // Group by schoolCode → {total, mau}, then bucket.
+  // newOnly (Tab 4 With-Repeated): count only NEW MAU students, so Repeated ones don't inflate a school's %.
   const bySchool = new Map();
   for (const r of rows) {
     const sc = r['schoolCode'];
@@ -631,7 +654,7 @@ function computeSchoolDistribution(rows) {
     if (!bySchool.has(sc)) bySchool.set(sc, { total: 0, mau: 0 });
     const s = bySchool.get(sc);
     s.total++;
-    if (isYes(r['Completed MAU?'])) s.mau++;
+    if (newOnly ? r._newMau : isYes(r['Completed MAU?'])) s.mau++;
   }
   const labels = ['0% to 20%', '20% to 40%', '40% to 60%', '60% to 80%', '80% to 100%'];
   const buckets = [0, 0, 0, 0, 0];
@@ -804,6 +827,12 @@ const PA_RAW_COLS = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 
 const PA_DATE_COLS = new Set(['First MAU Date']);
 // Repeated / Pending student lists also show last-week status.
 const PA_LIST_COLS = PA_RAW_COLS.concat(['Was MAU Last Week', 'MAU Status']);
+/** PA_LIST_COLS with the "was MAU earlier" header renamed (Tab 4 uses 'MAU in Look-back'). */
+function paListCols(label) {
+  return (label && label !== 'Was MAU Last Week')
+    ? PA_LIST_COLS.map(c => c === 'Was MAU Last Week' ? label : c)
+    : PA_LIST_COLS;
+}
 
 /** A plain data sheet: red header row + rows for the given columns. */
 function addRowSheet(wb, sheetName, cols, rows) {
@@ -844,16 +873,17 @@ function addTitledTableSheet(wb, sheetName, title, dfRows) {
 async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList, studentRows, repeated) {
   const wb = new ExcelJS.Workbook();
   const on = !!(repeated && repeated.summary);
+  const listCols = paListCols(repeated && repeated.earlierLabel);
   addSummarySheets(wb, summaries, mauDist);
   if (on) {
-    addTitledTableSheet(wb, 'Repeated_Summary', 'Repeated / New / Pending — vs last week', repeated.summary);
-    addRowSheet(wb, 'Repeated_Students', PA_LIST_COLS, studentRows.filter(r => r['MAU Status'] === 'Repeated'));
+    addTitledTableSheet(wb, 'Repeated_Summary', repeated.title || 'Repeated / New / Pending — vs last week', repeated.summary);
+    addRowSheet(wb, 'Repeated_Students', listCols, studentRows.filter(r => r['MAU Status'] === 'Repeated'));
     // The Pending list (never-MAU) can be ~190k rows — too large to build as a
     // second big sheet in a browser without running out of memory. It ships as a
     // companion CSV instead; Raw_Data below carries the MAU Status column so
     // pending students are still filterable right here in the workbook.
   }
-  if (studentRows && studentRows.length) addRowSheet(wb, 'Raw_Data', on ? PA_LIST_COLS : PA_RAW_COLS, studentRows);
+  if (studentRows && studentRows.length) addRowSheet(wb, 'Raw_Data', on ? listCols : PA_RAW_COLS, studentRows);
   addMappingSheet(wb, createdList, otherList);
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1098,16 +1128,12 @@ async function loadRosterTSV(status, templateArrayBuffer) {
 }
 
 /**
- * @param files  content-log CSV/XLSX files (same input as the email extractor)
- * @param templateArrayBuffer  optional pre-loaded template bytes (used by tests);
- *        when omitted, the roster is loaded (and cached) from ADOBE_TEMPLATE_URL.
+ * Step 1 of Feature 3, reusable by Tab 4: turn content-log files into the
+ * activity sets the report builder needs.
+ * @returns {{createdList:string[], otherList:string[], createdSet:Set<string>,
+ *            otherSet:Set<string>, firstMau:Map<string,number>, fileStats:Array}}
  */
-async function processAndPrepareAdobe(files, onProgress, onStatus, templateArrayBuffer, opts = {}) {
-  const status = onStatus || (() => {});
-  const progress = onProgress || (() => {});
-
-  // 1. Split content-log emails: Created → MAU (Mapping A), Other → Login (Mapping C)
-  status('Extracting emails from content logs…'); progress(6);
+async function collectActivityFromLogs(files) {
   const emailRes = await extractEmails(files, () => {}, () => {});
   const validFiles = emailRes.fileStats.filter(s => !s.error).length;
   if (!validFiles) {
@@ -1116,9 +1142,37 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
   }
   const createdList = emailRes.createdList;   // → Mapping col A → 'Completed MAU?'
   const otherList   = emailRes.otherList;     // → Mapping col C → 'Logged In?'
-  const createdSet  = new Set(createdList.map(e => e.trim().toLowerCase()));
-  const otherSet    = new Set(otherList.map(e => e.trim().toLowerCase()));
-  const firstMau    = emailRes.firstMau || new Map();   // email → earliest Created ts
+  return {
+    createdList, otherList,
+    createdSet: new Set(createdList.map(e => e.trim().toLowerCase())),
+    otherSet:   new Set(otherList.map(e => e.trim().toLowerCase())),
+    firstMau:   emailRes.firstMau || new Map(),   // email → earliest Created ts
+    fileStats:  emailRes.fileStats
+  };
+}
+
+/**
+ * Steps 2-4 of Feature 3, reusable by Tab 4: mark every roster student from an
+ * `activity` object, optionally classify against an earlier window, then build
+ * the summaries and the output workbook.
+ *
+ * @param activity  {createdList, otherList, createdSet, otherSet, firstMau, fileStats?}
+ * @param opts      lastWeekMAU (Set) | lastWeekFile (File)  — Tab 3 week-over-week
+ *                  earlierMauMap (Map email→ts)             — Tab 4 look-back window
+ *                  earlierLabel  (string)  header for the "was MAU earlier" column
+ *                  repeatedTitle (string)  title of the Repeated_Summary sheet
+ *                  mode          'tab3' (default) | 'range'
+ * @param templateArrayBuffer  optional pre-loaded template bytes (tests); when
+ *        omitted the roster is loaded (and cached) from ADOBE_TEMPLATE_URL.
+ */
+async function buildReportFromActivity(activity, opts, onStatus, onProgress, templateArrayBuffer) {
+  opts = opts || {};
+  const status = onStatus || (() => {});
+  const progress = onProgress || (() => {});
+  const rangeMode = opts.mode === 'range';
+  const earlierKey = opts.earlierLabel || 'Was MAU Last Week';
+  const { createdList, otherList, createdSet, otherSet } = activity;
+  const firstMau = activity.firstMau || new Map();
 
   // 2. Load the roster (cached across runs; downloads + parses only when the
   //    template version changes).
@@ -1148,39 +1202,46 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
 
   // 3b. Optional week-over-week analysis: classify each student vs last week's MAU.
   let lastWeekMAU = opts.lastWeekMAU || null;
+  if (!lastWeekMAU && opts.earlierMauMap) lastWeekMAU = new Set(opts.earlierMauMap.keys());   // Tab 4 look-back
   if (!lastWeekMAU && opts.lastWeekFile) {
     status("Reading last week's MAU report…");
     lastWeekMAU = await readLastWeekMAU(opts.lastWeekFile);
   }
-  const withRepeated = !!(lastWeekMAU && lastWeekMAU.size);
+  // A Tab 4 look-back (earlierMauMap) always switches Repeated on, even if the
+  // look-back window turned out to have no MAU students.
+  const withRepeated = !!opts.earlierMauMap || !!(lastWeekMAU && lastWeekMAU.size);
   let repStats = null;
   if (withRepeated) {
-    status('Comparing to last week (repeated / new / pending)…'); progress(66);
-    let repeated = 0, newMau = 0, pending = 0;
+    status(rangeMode ? 'Comparing with the look-back period (repeated / new / pending)…' : 'Comparing to last week (repeated / new / pending)…'); progress(66);
+    let repeated = 0, newMau = 0, pending = 0, completedEarlier = 0;
     for (const r of rosterRows) {
       const em = String(r[TEMPLATE_EMAIL_COL] == null ? '' : r[TEMPLATE_EMAIL_COL]).trim().toLowerCase();
       const thisMau = r['Completed MAU?'] === 'Yes';
       const wasMau = em !== '' && lastWeekMAU.has(em);
       r['Was MAU Last Week'] = wasMau ? 'Yes' : 'No';
+      if (earlierKey !== 'Was MAU Last Week') r[earlierKey] = r['Was MAU Last Week'];
       if (thisMau && wasMau) { r['MAU Status'] = 'Repeated'; r._repeated = 1; r._newMau = 0; r._pending = 0; repeated++; }
       else if (thisMau && !wasMau) { r['MAU Status'] = 'New'; r._repeated = 0; r._newMau = 1; r._pending = 0; newMau++; }
       else if (!thisMau && !wasMau) { r['MAU Status'] = 'Pending'; r._repeated = 0; r._newMau = 0; r._pending = 1; pending++; }
-      else { r['MAU Status'] = 'Completed earlier'; r._repeated = 0; r._newMau = 0; r._pending = 0; }  // MAU last week only
+      else { r['MAU Status'] = 'Completed earlier'; r._repeated = 0; r._newMau = 0; r._pending = 0; completedEarlier++; }  // MAU last week only
     }
     repStats = { repeated, newMau, pending, lastWeekMauCount: lastWeekMAU.size };
+    if (rangeMode) repStats.completedEarlier = completedEarlier;
   }
 
   // 4. Aggregate (reuses the Adobe-prep logic) and build the output workbook.
   status('Normalizing and computing summaries…'); progress(72);
   const normRows = normalizeGroupingColumns(rosterRows);
-  const summaries = computeSummaries(normRows, withRepeated);
-  const mauDist = computeSchoolDistribution(normRows);
+  let summaries = computeSummaries(normRows, withRepeated);
+  const rangeRepeated = rangeMode && withRepeated;
+  if (rangeRepeated) summaries = relabelRangeSummaries(summaries);
+  const mauDist = computeSchoolDistribution(normRows, rangeRepeated);
   const repeatedSummary = withRepeated ? computeRepeatedSummary(normRows) : null;
 
   status('Building final Excel file (incl. student-level Raw_Data)…'); progress(90);
   const blob = await buildProcessedAdobeWorkbook(
     summaries, mauDist, createdList, otherList, normRows,
-    repeatedSummary ? { summary: repeatedSummary } : null
+    repeatedSummary ? { summary: repeatedSummary, earlierLabel: earlierKey, title: opts.repeatedTitle } : null
   );
 
   // The Pending list (never-MAU) is potentially huge, so it ships as a companion
@@ -1188,7 +1249,7 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
   let pendingCsvBlob = null, pendingCsvName = null;
   if (withRepeated) {
     const pendRows = normRows.filter(r => r['MAU Status'] === 'Pending');
-    pendingCsvBlob = rowsToCsvBlob(PA_LIST_COLS, pendRows);
+    pendingCsvBlob = rowsToCsvBlob(paListCols(earlierKey), pendRows);
     pendingCsvName = `Pending_Students_${dateStamp()}.csv`;
   }
   progress(100);
@@ -1208,8 +1269,25 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
     pendingCsvName,
     summaries,
     mauDist,
-    emailFileStats: emailRes.fileStats
+    emailFileStats: activity.fileStats || []
   };
+}
+
+/**
+ * @param files  content-log CSV/XLSX files (same input as the email extractor)
+ * @param templateArrayBuffer  optional pre-loaded template bytes (used by tests);
+ *        when omitted, the roster is loaded (and cached) from ADOBE_TEMPLATE_URL.
+ */
+async function processAndPrepareAdobe(files, onProgress, onStatus, templateArrayBuffer, opts = {}) {
+  const status = onStatus || (() => {});
+  const progress = onProgress || (() => {});
+
+  // 1. Split content-log emails: Created → MAU (Mapping A), Other → Login (Mapping C)
+  status('Extracting emails from content logs…'); progress(6);
+  const activity = await collectActivityFromLogs(files);
+
+  // 2-4. Roster, marking, optional week-over-week, summaries, workbook.
+  return buildReportFromActivity(activity, opts, status, progress, templateArrayBuffer);
 }
 
 function dateStamp() {
@@ -1231,5 +1309,9 @@ window.Processing = {
   emailDefaultFilename,
   saveFolderPickerSupported,
   processAndPrepareAdobe,
+  collectActivityFromLogs,
+  buildReportFromActivity,
+  parseLogTimestamp,
+  IST_OFFSET_MS,
   fetchAdobeTemplate
 };

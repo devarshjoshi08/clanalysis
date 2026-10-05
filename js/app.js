@@ -456,4 +456,540 @@
     }
   });
 
+  /* ============================================================
+   * TAB 4 — Date-Range MAU Report  (persistent daily store)
+   * All data work lives in window.Store (store.js); this is only the screen.
+   * ============================================================ */
+  const T4 = {
+    summary: null,      // Store.summarize(...) of the current store
+    manifest: null,
+    addList: [],        // raw content-log files queued for "Add to store"
+    busy: false         // an add / report / reset is running
+  };
+  const r$ = id => document.getElementById(id);
+
+  const storeFolderName = r$('storeFolderName'), storeLabel = r$('storeLabel');
+  const storeCoverage = r$('storeCoverage'), storeLegend = r$('storeLegend');
+  const storeChoose = r$('storeChoose'), storeReconnect = r$('storeReconnect'), storeRefresh = r$('storeRefresh');
+  const adminLoginBtn = r$('adminLoginBtn'), adminOn = r$('adminOn'), adminExitBtn = r$('adminExitBtn');
+  const resetStoreBtn = r$('resetStoreBtn'), storeMsg = r$('storeMsg');
+  const addCard = r$('addCard'), addFilesInput = r$('addFiles'), addClearBtn = r$('addClear'), addRunBtn = r$('addRun');
+  const addFileList = r$('addFileList'), addProgress = r$('addProgress'), addStatus = r$('addStatus'), addResult = r$('addResult');
+  const rptFrom = r$('rptFrom'), rptTo = r$('rptTo'), rptLookback = r$('rptLookback');
+  const rptRepeatBox = r$('rptRepeatBox'), rptWindow = r$('rptWindow'), rptMsgs = r$('rptMsgs');
+  const rptBuildBtn = r$('rptBuild'), rptProgress = r$('rptProgress'), rptStatus = r$('rptStatus'), rptLogBox = r$('rptLogBox');
+
+  function rptLog(msg, type = 'info') {
+    if (!msg) return;
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    rptLogBox.appendChild(entry);
+    rptLogBox.scrollTop = rptLogBox.scrollHeight;
+  }
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`;
+
+  /* ---------- small form dialog (login / confirm / reset) ---------- */
+  const dlg = r$('dlg'), dlgTitle = r$('dlgTitle'), dlgBody = r$('dlgBody'), dlgMsg = r$('dlgMsg');
+  const dlgOk = r$('dlgOk'), dlgCancel = r$('dlgCancel'), dlgClose = r$('dlgClose');
+  let dlgState = null;
+
+  /**
+   * Show the dialog. `body` is a string or a DOM node. `onOk` (optional, async) runs when OK is pressed:
+   * return false to keep the dialog open (it should have set a message with `say`), anything else closes it
+   * and becomes the resolved value (undefined → true). Cancel / Esc / × resolve null.
+   */
+  function openDialog({ title, body, okText = 'OK', cancelText = 'Cancel', danger = false, onOk, onOpen }) {
+    return new Promise(resolve => {
+      if (dlgState) dlgState.finish(null);
+      dlgTitle.textContent = title;
+      dlgBody.textContent = '';
+      if (typeof body === 'string') dlgBody.appendChild(el('p', '', body)); else if (body) dlgBody.appendChild(body);
+      dlgMsg.textContent = ''; dlgMsg.className = 'dlg-msg';
+      dlgOk.textContent = okText; dlgOk.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary'); dlgOk.disabled = false;
+      dlgCancel.textContent = cancelText || 'Cancel';
+      dlgCancel.classList.toggle('hidden', !cancelText);
+      dlg.classList.remove('hidden');
+      const say = (text, type = 'error') => { dlgMsg.textContent = text; dlgMsg.className = 'dlg-msg ' + type; };
+      let cleanup = null;
+      const finish = value => {
+        if (!dlgState) return;
+        dlgState = null;
+        if (cleanup) { try { cleanup(); } catch (_) { /* ignore */ } }
+        dlg.classList.add('hidden');
+        resolve(value);
+      };
+      dlgState = {
+        finish, say, busy: false,
+        submit: async () => {
+          if (dlgOk.disabled || (dlgState && dlgState.busy)) return;
+          dlgState.busy = true; dlgOk.disabled = true;
+          let out;
+          try { out = onOk ? await onOk(say) : true; }
+          catch (e) { say(e && e.message ? e.message : String(e)); out = false; }
+          if (!dlgState) return;          // closed while running
+          dlgState.busy = false;
+          if (out === false) { if (!dlgState.locked) dlgOk.disabled = false; return; }
+          finish(out === undefined ? true : out);
+        }
+      };
+      if (onOpen) cleanup = onOpen({ say, ok: dlgOk, body: dlgBody, submit: () => dlgState && dlgState.submit() }) || null;
+    });
+  }
+  dlgOk.addEventListener('click', () => { if (dlgState) dlgState.submit(); });
+  dlgCancel.addEventListener('click', () => { if (dlgState && !dlgState.busy) dlgState.finish(null); });
+  dlgClose.addEventListener('click', () => { if (dlgState && !dlgState.busy) dlgState.finish(null); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && dlgState && !dlgState.busy) dlgState.finish(null);
+  });
+
+  /* ---------- store card ---------- */
+  function setStoreMsg(text, type = '') { setStatus(storeMsg, text, type); }
+
+  function renderLabel() {
+    storeLabel.className = 'store-label';
+    if (!Store.isConnected()) return;
+    if (!T4.summary) { storeLabel.textContent = 'Reading the store…'; return; }
+    storeLabel.textContent = Store.formatLabel(T4.summary);
+    storeLabel.classList.add(T4.summary.empty || T4.summary.missingDays.length ? 'warn' : 'ok');
+  }
+
+  function renderCoverage() {
+    storeCoverage.textContent = '';
+    const grid = T4.manifest ? Store.coverageGrid(T4.manifest) : [];
+    storeLegend.classList.toggle('hidden', grid.length === 0);
+    for (const m of grid) {
+      const box = el('div', 'cov-month');
+      box.appendChild(el('div', 'cov-month-label', m.label));
+      const g = el('div', 'cov-grid');
+      for (const d of m.days) {
+        const c = el('i', 'cov-cell ' + (d.stored ? 'stored' : (d.inRange ? 'gap' : 'out')), String(+d.day.slice(8)));
+        c.title = d.stored
+          ? `${Store.fmtDMY(d.day)} — ${d.students.toLocaleString()} students, ${d.mau.toLocaleString()} MAU`
+          : (d.inRange ? `${Store.fmtDMY(d.day)} — no data (missing)` : `${Store.fmtDMY(d.day)} — outside stored dates`);
+        g.appendChild(c);
+      }
+      box.appendChild(g);
+      storeCoverage.appendChild(box);
+    }
+  }
+
+  /** Hint the pickers with the stored range, and pre-fill From/To (1st of the latest stored month → latest day) while empty. */
+  function applyDateHints() {
+    const s = T4.summary, has = !!(s && !s.empty);
+    for (const i of [rptFrom, rptTo]) { i.min = has ? s.firstDay : ''; i.max = has ? s.lastDay : ''; }
+    if (has && !rptFrom.value && !rptTo.value) {
+      const monthStart = s.lastDay.slice(0, 7) + '-01';
+      rptFrom.value = monthStart > s.firstDay ? monthStart : s.firstDay;
+      rptTo.value = s.lastDay;
+    }
+  }
+
+  /** Re-read the store (manifest) and redraw the label, coverage strip and report checks. */
+  async function refreshStore(quiet) {
+    if (!Store.isConnected()) { T4.summary = null; T4.manifest = null; }
+    else {
+      try {
+        const { manifest, summary } = await Store.getSummary();
+        T4.manifest = manifest; T4.summary = summary;
+        if (!quiet) setStoreMsg('');
+      } catch (e) {
+        T4.manifest = null; T4.summary = null;
+        storeLabel.className = 'store-label error';
+        storeLabel.textContent = `Could not read the store: ${e.message}`;
+        renderCoverage(); renderAdmin(); renderValidation();
+        return;
+      }
+    }
+    applyDateHints();
+    renderLabel(); renderCoverage(); renderAdmin(); renderValidation();
+  }
+
+  function renderFolder(state) {
+    const connected = state && state.state === 'ready';
+    storeFolderName.textContent = connected ? `— folder: ${state.name}` : '';
+    storeChoose.textContent = connected ? 'Change folder' : 'Choose store folder';
+    storeChoose.classList.toggle('btn-primary', !connected && !(state && state.state === 'needs-permission'));
+    storeChoose.classList.toggle('btn-secondary', connected || (state && state.state === 'needs-permission'));
+    storeReconnect.classList.toggle('hidden', !(state && state.state === 'needs-permission'));
+    if (state && state.state === 'needs-permission') storeReconnect.textContent = `Reconnect store (${state.name})`;
+    storeRefresh.disabled = !connected;
+    storeChoose.disabled = !!(state && state.state === 'unsupported');
+    if (!connected) {
+      storeLabel.className = 'store-label' + (state && state.state === 'unsupported' ? ' error' : ' warn');
+      storeLabel.textContent =
+        state && state.state === 'unsupported' ? "This browser can't open folders. Please use Chrome or Edge on a desktop (over http/https)."
+        : state && state.state === 'needs-permission' ? `Click “Reconnect store” to reopen “${state.name}” (the browser asks once per visit).`
+        : 'Choose the store folder to begin (the “Adobe MAU Store” folder synced by WorkDrive TrueSync).';
+      T4.summary = null; T4.manifest = null;
+      renderCoverage(); renderAdmin(); renderValidation();
+    }
+  }
+
+  async function onFolderState(state) {
+    renderFolder(state);
+    if (state.state === 'ready') await refreshStore();
+  }
+
+  storeChoose.addEventListener('click', async () => {
+    try {
+      const st = await Store.pickFolder();
+      if (st.state === 'cancelled') return;
+      T4.addList = []; renderAddList();
+      await onFolderState(st);
+      setStoreMsg(`Store folder set to “${st.name}”. This page will remember it.`, 'success');
+    } catch (e) { setStoreMsg(e.message, 'error'); }
+  });
+  storeReconnect.addEventListener('click', async () => {
+    try { await onFolderState(await Store.reconnect()); }
+    catch (e) { setStoreMsg(e.message, 'error'); }
+  });
+  storeRefresh.addEventListener('click', async () => {
+    storeRefresh.disabled = true;
+    await refreshStore(true);
+    storeRefresh.disabled = !Store.isConnected();
+    setStoreMsg('Store re-read.', 'success');
+  });
+  // Pick up days that TrueSync delivered while the page sat in the background.
+  window.addEventListener('focus', () => {
+    if (Store.isConnected() && !T4.busy && !dlgState) refreshStore(true);
+  });
+
+  /* ---------- admin mode ---------- */
+  function renderAdmin() {
+    const admin = Store.isAdmin();
+    adminLoginBtn.classList.toggle('hidden', admin);
+    adminOn.classList.toggle('hidden', !admin);
+    resetStoreBtn.classList.toggle('hidden', !admin);
+    addCard.classList.toggle('hidden', !(admin && Store.isConnected()));
+    addRunBtn.disabled = T4.busy || !T4.addList.length;
+  }
+
+  adminLoginBtn.addEventListener('click', async () => {
+    const wrap = el('div');
+    wrap.appendChild(el('p', '', 'Enter the admin password to add daily logs or reset the store.'));
+    const input = el('input'); input.type = 'password'; input.autocomplete = 'off'; input.placeholder = 'Admin password';
+    wrap.appendChild(input);
+    wrap.appendChild(el('p', 'muted', 'Admin mode lasts until you close this page.'));
+    const ok = await openDialog({
+      title: 'Admin login', body: wrap, okText: 'Log in',
+      onOpen: ({ say, ok: okBtn, submit }) => {
+        setTimeout(() => input.focus(), 30);
+        let timer = null;
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+        dlgState.lock = secs => {
+          dlgState.locked = true; okBtn.disabled = true; input.disabled = true;
+          const until = Date.now() + secs * 1000;
+          const tick = () => {
+            const left = Math.ceil((until - Date.now()) / 1000);
+            if (left <= 0) { clearInterval(timer); timer = null; if (dlgState) dlgState.locked = false; okBtn.disabled = false; input.disabled = false; say('You can try again now.', 'info'); input.focus(); }
+            else say(`Too many wrong tries. Try again in ${left}s.`);
+          };
+          clearInterval(timer); timer = setInterval(tick, 500); tick();
+        };
+        return () => { if (timer) clearInterval(timer); };
+      },
+      onOk: async say => {
+        const res = await Store.adminLogin(input.value);
+        if (res.ok) return true;
+        input.value = '';
+        if (res.locked) { dlgState.lock(res.secondsLeft || 30); return false; }
+        say(res.message || 'Incorrect admin password.');
+        input.focus();
+        return false;
+      }
+    });
+    if (ok) { renderAdmin(); setStoreMsg('Admin mode is on until you close this page.', 'success'); }
+  });
+  adminExitBtn.addEventListener('click', () => {
+    Store.exitAdmin();
+    T4.addList = []; renderAddList();
+    renderAdmin();
+    setStoreMsg('Admin mode is off.');
+  });
+
+  /* ---------- add daily logs (admin) ---------- */
+  function renderAddList() {
+    addFileList.textContent = '';
+    for (const f of T4.addList) addFileList.appendChild(el('li', '', f.name));
+    addRunBtn.disabled = T4.busy || !T4.addList.length;
+  }
+  addFilesInput.addEventListener('change', e => {
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
+    for (const f of picked) if (!T4.addList.some(x => x.name === f.name && x.size === f.size)) T4.addList.push(f);
+    renderAddList();
+    addResult.textContent = '';
+    setStatus(addStatus, `${plural(T4.addList.length, 'file')} selected. Click “Add to store”.`, 'success');
+    addFilesInput.value = '';
+  });
+  addClearBtn.addEventListener('click', () => {
+    T4.addList = []; renderAddList(); addResult.textContent = '';
+    setProgress(addProgress, 0); setStatus(addStatus, 'File list cleared');
+  });
+
+  function renderAddResult(res) {
+    addResult.textContent = '';
+    const tbl = el('table', 'result-table');
+    const head = el('tr');
+    for (const h of ['Day (IST)', 'Students', 'MAU', 'Files']) head.appendChild(el('th', '', h));
+    tbl.appendChild(head);
+    for (const d of res.days) {
+      const tr = el('tr');
+      [Store.fmtDMY(d.day), d.students.toLocaleString(), d.mau.toLocaleString(), String(d.files)].forEach(t => tr.appendChild(el('td', '', t)));
+      tbl.appendChild(tr);
+    }
+    addResult.appendChild(el('div', '', `Added ${plural(res.days.length, 'day')} to the store:`));
+    addResult.appendChild(tbl);
+    for (const f of res.perFile) {
+      const skipped = [];
+      if (f.system) skipped.push(`${f.system.toLocaleString()} Adobe/guest`);
+      if (f.noEmail) skipped.push(`${f.noEmail.toLocaleString()} blank`);
+      if (f.badDate) skipped.push(`${f.badDate.toLocaleString()} bad date`);
+      addResult.appendChild(el('div', 'result-note',
+        `${f.name}: ${f.kept.toLocaleString()} of ${f.rows.toLocaleString()} rows used` +
+        (skipped.length ? ` (skipped ${skipped.join(', ')})` : '') +
+        (f.days.length ? ` → ${Store.compressDays(f.days)}` : '')));
+    }
+    if (res.duplicateFiles && res.duplicateFiles.length) {
+      addResult.appendChild(el('div', 'result-note warn',
+        `Already added earlier: ${res.duplicateFiles.join(', ')} — re-adding never double-counts, so nothing changed for those rows.`));
+    }
+    addResult.appendChild(el('div', 'result-note', 'Saved into the synced folder — TrueSync uploads it to WorkDrive shortly.'));
+  }
+
+  addRunBtn.addEventListener('click', async () => {
+    if (!T4.addList.length || T4.busy) return;
+    if (!Store.isAdmin()) { setStatus(addStatus, 'Admin login required.', 'error'); return; }
+    T4.busy = true; renderAdmin();
+    addClearBtn.disabled = true; addResult.textContent = '';
+    setProgress(addProgress, 0);
+    try {
+      // Needs the click's user activation, so it goes first.
+      await Store.ensureWritable();
+      const parsed = await Store.parseLogFiles(T4.addList, ({ fileIndex, fileCount, name, pct }) => {
+        setProgress(addProgress, ((fileIndex + pct / 100) / fileCount) * 90);
+        setStatus(addStatus, `Reading ${name} (${fileIndex + 1} of ${fileCount}) — ${Math.round(pct)}%`);
+      });
+      if (!parsed.days.size) throw new Error('No usable rows found. The files need Action, Date and User Email columns.');
+      setStatus(addStatus, 'Saving to the store…'); setProgress(addProgress, 94);
+      let res = await Store.commitParsed(parsed);
+      if (res.needsConfirm) {
+        const go = await openDialog({ title: 'Different month in these files', body: res.guard.message, okText: 'Continue anyway', cancelText: 'Cancel' });
+        if (!go) { setStatus(addStatus, 'Cancelled — nothing was added.'); setProgress(addProgress, 0); return; }
+        res = await Store.commitParsed(parsed, { confirmMixedMonths: true });
+      }
+      setProgress(addProgress, 100);
+      setStatus(addStatus, `Done — ${plural(res.days.length, 'day')} updated.`, 'success');
+      renderAddResult(res);
+      T4.addList = []; renderAddList();
+      await refreshStore(true);
+    } catch (e) {
+      console.error(e);
+      setStatus(addStatus, `Error: ${e.message}`, 'error');
+      setProgress(addProgress, 0);
+    } finally {
+      T4.busy = false; addClearBtn.disabled = false; renderAdmin();
+    }
+  });
+
+  /* ---------- reset (admin) ---------- */
+  resetStoreBtn.addEventListener('click', async () => {
+    if (!Store.isAdmin() || T4.busy) return;
+    try { await Store.ensureWritable(); }       // user activation first
+    catch (e) { setStoreMsg(e.message, 'error'); return; }
+    let manifest;
+    try { manifest = await Store.loadManifest(); } catch (e) { setStoreMsg(e.message, 'error'); return; }
+    const s = Store.summarize(manifest);
+    if (s.empty) { setStoreMsg('The store is already empty — nothing to reset.'); return; }
+    const month = s.firstDay.slice(0, 7);
+
+    const wrap = el('div');
+    wrap.appendChild(el('p', '', `This archives all ${plural(s.dayCount, 'stored day')} (${Store.fmtDMY(s.firstDay)} to ${Store.fmtDMY(s.lastDay)}) into the folder archive/${month} and empties the store. Nothing is deleted — the data stays in the archive folder.`));
+    wrap.appendChild(el('p', '', 'Type RESET to confirm:'));
+    const input = el('input'); input.type = 'text'; input.autocomplete = 'off'; input.placeholder = 'RESET';
+    wrap.appendChild(input);
+
+    T4.busy = true;
+    const done = await openDialog({
+      title: 'Reset the store', body: wrap, okText: 'Archive and reset', danger: true,
+      onOpen: ({ ok: okBtn, submit }) => {
+        okBtn.disabled = true;
+        setTimeout(() => input.focus(), 30);
+        input.addEventListener('input', () => { okBtn.disabled = input.value.trim() !== 'RESET'; });
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); if (!okBtn.disabled) submit(); } });
+      },
+      onOk: async say => {
+        if (input.value.trim() !== 'RESET') { say('Type RESET (capitals) to confirm.'); return false; }
+        say('Archiving…', 'info');
+        return await Store.resetStore();
+      }
+    });
+    T4.busy = false;
+    if (done && done.archivedTo) {
+      rptFrom.value = ''; rptTo.value = ''; rptLookback.value = '';     // the old dates no longer exist in the store
+      await refreshStore(true);
+      setStoreMsg(`Store reset. ${plural(done.dayCount, 'day')} archived to ${done.archivedTo}.`, 'success');
+      showModal('Store reset',
+        `Archived ${plural(done.dayCount, 'day')} (${Store.fmtDMY(done.firstDay)} to ${Store.fmtDMY(done.lastDay)}) to:\n  ${done.archivedTo}\n\n` +
+        'The store is now empty — add the new month\'s files to start again. The archive folder is kept in WorkDrive.');
+    }
+    renderAdmin();
+  });
+
+  /* ---------- report form ---------- */
+  function readParams() {
+    const mode = (document.querySelector('input[name="rptMode"]:checked') || {}).value === 'repeated' ? 'repeated' : 'normal';
+    return { mode, from: rptFrom.value, to: rptTo.value, lookbackFrom: rptLookback.value };
+  }
+
+  /** Live checks: red = blocked, amber = allowed after a confirm. */
+  function renderValidation() {
+    const p = readParams();
+    rptRepeatBox.classList.toggle('hidden', p.mode !== 'repeated');
+    const connected = Store.isConnected() && !!T4.summary;
+    const v = Store.validateRange(p, connected ? T4.summary : null, Store.todayKey());
+    rptMsgs.textContent = '';
+    if (!connected) {
+      rptMsgs.appendChild(el('div', 'msg error', Store.isConnected() ? 'Reading the store…' : 'Choose the store folder first.'));
+    } else {
+      // Don't shout about empty fields before the user has touched the form (an empty store is always shown).
+      const touched = !!(p.from || p.to || p.lookbackFrom);
+      for (const e of v.errors) if (touched || e.code === 'store-empty') rptMsgs.appendChild(el('div', 'msg error', e.msg));
+      for (const w of v.warnings) rptMsgs.appendChild(el('div', 'msg warn', w.msg));
+    }
+
+    const days = w => Store.dayRange(w.from, w.to).length;
+    let note = '';
+    if (v.windows.report && v.windows.report.from <= v.windows.report.to) {
+      note = `Report: ${Store.fmtDMY(v.windows.report.from)} to ${Store.fmtDMY(v.windows.report.to)} (${plural(days(v.windows.report), 'day')})`;
+      if (p.mode === 'repeated' && v.windows.lookback) note += `  ·  Look-back: ${Store.fmtDMY(v.windows.lookback.from)} to ${Store.fmtDMY(v.windows.lookback.to)} (${plural(days(v.windows.lookback), 'day')})`;
+    }
+    rptWindow.textContent = note;
+    document.querySelectorAll('#rptRepeatBox .btn-chip').forEach(b => { b.disabled = !Store.isDayKey(p.from); });
+    rptBuildBtn.disabled = T4.busy || !connected || v.errors.length > 0;
+    return v;
+  }
+
+  [rptFrom, rptTo, rptLookback].forEach(i => { i.addEventListener('input', renderValidation); i.addEventListener('change', renderValidation); });
+  document.querySelectorAll('input[name="rptMode"]').forEach(r => r.addEventListener('change', renderValidation));
+  document.querySelectorAll('#rptRepeatBox .btn-chip').forEach(b => b.addEventListener('click', () => {
+    const k = Store.lookbackPreset(b.dataset.preset, rptFrom.value, T4.summary);
+    if (!k) { rptWindow.textContent = 'That shortcut starts on or after the report’s From date — pick the look-back date yourself.'; return; }
+    rptLookback.value = k;
+    renderValidation();
+  }));
+
+  rptBuildBtn.addEventListener('click', async () => {
+    if (T4.busy) return;
+    const p = readParams();
+    const v = renderValidation();
+    if (v.errors.length) return;
+
+    if (v.warnings.length) {
+      const list = el('ul');
+      for (const w of v.warnings) list.appendChild(el('li', '', w.msg));
+      const wrap = el('div');
+      wrap.appendChild(el('p', '', 'Please check before building:'));
+      wrap.appendChild(list);
+      const go = await openDialog({ title: 'Check your date range', body: wrap, okText: 'Build anyway', cancelText: 'Go back' });
+      if (!go) return;
+    }
+
+    // Save location first: the picker needs a fresh click, which the long build would outlive.
+    const filename = Store.reportFilename(p);
+    const pickerSupported = Processing.saveFolderPickerSupported();
+    const saveHandle = await Processing.pickSaveHandle(filename);
+    if (saveHandle === null) { setStatus(rptStatus, 'Save cancelled — nothing was built'); return; }
+
+    T4.busy = true; rptBuildBtn.disabled = true;
+    setProgress(rptProgress, 0);
+    rptLogBox.textContent = '';
+    rptLog(`Starting: ${p.mode === 'repeated' ? 'MAU report with Repeated' : 'MAU report'} for ${Store.fmtDMY(p.from)} to ${Store.fmtDMY(p.to)}`, 'info');
+    if (!pickerSupported) rptLog('Folder picker unavailable in this browser — the file will download to your Downloads folder.', 'error');
+
+    try {
+      const result = await Store.runRangeReport(
+        p,
+        msg => { setStatus(rptStatus, msg); rptLog(msg, 'info'); },
+        pct => setProgress(rptProgress, pct)
+      );
+      const rg = result.range;
+
+      const cutoffLines = result.mauDist.slice(0, -1).map(r => `  ${r['MAU % Range']}: ${r['No. of Schools']}`).join('\n');
+      const rep = result.repeated;
+      const repeatLines = rep
+        ? `\n\nRepeated analysis (look-back ${Store.fmtDMY(rg.lookbackFrom)} to ${Store.fmtDMY(rg.lookbackTo)}):\n` +
+          `  New MAU (in report period only): ${rep.newMau.toLocaleString()}\n` +
+          `  Repeated (MAU in both periods): ${rep.repeated.toLocaleString()}\n` +
+          `  Completed earlier (look-back only): ${(rep.completedEarlier || 0).toLocaleString()}\n` +
+          `  Pending (no MAU in either period): ${rep.pending.toLocaleString()}`
+        : '';
+
+      const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
+      const savedNote = outcome === 'saved'
+        ? `\n\nSaved as: ${saveHandle.name}`
+        : '\n\nThis browser can\'t open a folder picker (only Chrome or Edge over http/https can), so the file was downloaded to your Downloads folder instead.';
+      if (outcome === 'saved') rptLog(`Saved as: ${saveHandle.name}`, 'success');
+
+      let pendingNote = '';
+      if (result.pendingCsvBlob) {
+        Processing.triggerDownload(result.pendingCsvBlob, result.pendingCsvName);
+        pendingNote = `\n\nPending follow-up list downloaded separately as ${result.pendingCsvName} (in your Downloads).`;
+        rptLog(`Pending follow-up list saved as ${result.pendingCsvName} (Downloads).`, 'info');
+      }
+
+      const gapNote = (label, m) => {
+        if (!m) return '';
+        const parts = [];
+        if (m.gaps.length) parts.push(`no data for ${Store.compressDays(m.gaps)}`);
+        if (m.outside.length) parts.push(`outside the store: ${Store.compressDays(m.outside)}`);
+        return parts.length ? `\n  ${label}: ${parts.join('; ')}` : '';
+      };
+      const gaps = gapNote('Report period', rg.missingCurrent) + gapNote('Look-back', rg.missingLookback);
+
+      const msg =
+        'Date-range report complete!\n\n' +
+        `File: ${result.filename}\n` +
+        `Report period: ${Store.fmtDMY(rg.from)} to ${Store.fmtDMY(rg.to)} (${plural(rg.storedDays, 'stored day')} used)\n` +
+        (rg.lookbackFrom ? `Look-back: ${Store.fmtDMY(rg.lookbackFrom)} to ${Store.fmtDMY(rg.lookbackTo)}\n` : '') +
+        (gaps ? `Note:${gaps}\n` : '') +
+        `\nStudents in roster: ${result.totalStudents.toLocaleString()}\n` +
+        (rep
+          ? `MAU in report period: ${result.mauStudents.toLocaleString()} (New ${rep.newMau.toLocaleString()} + Repeated ${rep.repeated.toLocaleString()})\n`
+          : `Marked Completed MAU: ${result.mauStudents.toLocaleString()}\n`) +
+        `First MAU Date filled: ${(result.mauWithDate ?? 0).toLocaleString()}\n` +
+        `Marked Logged In: ${result.logStudents.toLocaleString()}\n\n` +
+        `MAU % cutoff (schools${rep ? ', New MAU only' : ''}):\n${cutoffLines}` +
+        repeatLines + pendingNote;
+
+      rptLog(rep
+        ? `Done — ${rep.newMau.toLocaleString()} new + ${rep.repeated.toLocaleString()} repeated MAU, ${result.logStudents.toLocaleString()} logged-in, of ${result.totalStudents.toLocaleString()} students`
+        : `Done — ${result.mauStudents.toLocaleString()} MAU / ${result.logStudents.toLocaleString()} logged-in of ${result.totalStudents.toLocaleString()} students`, 'success');
+      setStatus(rptStatus, outcome === 'saved' ? 'Report saved!' : 'Report downloaded to your Downloads folder.', 'success');
+      showModal('Date-Range MAU Report', msg + savedNote, { blob: result.blob, filename: result.filename });
+    } catch (err) {
+      console.error(err);
+      rptLog(`ERROR: ${err.message}`, 'error');
+      setStatus(rptStatus, `Error: ${err.message}`, 'error');
+      showModal('Error', `Error building the report:\n\n${err.message}`);
+    } finally {
+      T4.busy = false;
+      renderValidation();
+    }
+  });
+
+  /* ---------- start-up: reconnect to the remembered folder ---------- */
+  (async () => {
+    renderAdmin(); renderValidation();
+    try { await onFolderState(await Store.restoreFolder()); }
+    catch (e) { setStoreMsg(e.message, 'error'); }
+  })();
+
 })();

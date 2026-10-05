@@ -17,6 +17,7 @@
   <button class="tab-btn active" data-tab="emails">Email Extractor</button>
   <button class="tab-btn" data-tab="adobe">Adobe Data Preparation</button>
   <button class="tab-btn" data-tab="paAdobe">Process + Adobe Data Preparation</button>
+  <button class="tab-btn" data-tab="range">Date-Range MAU Report</button>
 </nav>
 
 <main class="content">
@@ -137,6 +138,102 @@
     </div>
   </section>
 
+
+  <!-- ============ TAB 4: DATE-RANGE MAU REPORT ============ -->
+  <section id="tab-range" class="tab-pane">
+    <div class="features">
+      <strong>Date-Range MAU Report</strong>
+      <p>Pick a date range and get the final Adobe summary for just that period &mdash; built from a shared <strong>daily store</strong> that an admin tops up with each day's content logs.</p>
+      <ul>
+        <li><strong>Normal report</strong> &mdash; MAU, logins and <code>First MAU Date</code> for the dates you pick.</li>
+        <li><strong>Report with Repeated</strong> &mdash; also pick a look-back start. Students who were already MAU in the look-back window show as <strong>Repeated</strong> (not New MAU).</li>
+        <li>Days follow India time (IST). The store label below always shows which dates are stored.</li>
+      </ul>
+      <p class="muted">Needs Chrome or Edge over http/https, and the <strong>Zoho WorkDrive TrueSync</strong> folder <code>Adobe MAU Store</code> (set to &ldquo;available offline&rdquo;). You pick that folder once; this page remembers it.</p>
+    </div>
+
+    <!-- Card 1: data store -->
+    <div class="card" id="storeCard">
+      <div class="card-title">Data store <span id="storeFolderName" class="card-sub"></span></div>
+      <div id="storeLabel" class="store-label">Choose the store folder to begin.</div>
+      <div id="storeCoverage" class="coverage"></div>
+      <div id="storeLegend" class="coverage-legend hidden">
+        <span><i class="cov-cell stored"></i> stored</span>
+        <span><i class="cov-cell gap"></i> missing</span>
+        <span><i class="cov-cell out"></i> outside stored dates</span>
+      </div>
+      <div class="actions card-actions">
+        <button id="storeChoose" class="btn btn-secondary">Choose store folder</button>
+        <button id="storeReconnect" class="btn btn-primary hidden">Reconnect store</button>
+        <button id="storeRefresh" class="btn btn-secondary" disabled>Refresh</button>
+        <span class="admin-bar">
+          <button id="adminLoginBtn" class="link-btn">Admin login</button>
+          <span id="adminOn" class="admin-on hidden">Admin mode on <button id="adminExitBtn" class="link-btn">Exit admin</button></span>
+          <button id="resetStoreBtn" class="link-btn danger hidden">Reset store (admin)</button>
+        </span>
+      </div>
+      <div id="storeMsg" class="status"></div>
+    </div>
+
+    <!-- Card 2: add daily logs (admin only) -->
+    <div class="card hidden" id="addCard">
+      <div class="card-title">Add daily logs <span class="card-sub">admin</span></div>
+      <p class="muted card-note">Select one or many raw Content-Log CSVs (any mix of days). Each row is filed under its own IST date; adding the same file twice never double-counts.</p>
+      <div class="actions">
+        <label class="btn btn-primary">
+          Select Content-Log Files
+          <input type="file" id="addFiles" multiple accept=".csv" hidden>
+        </label>
+        <button id="addClear" class="btn btn-secondary">Clear List</button>
+        <button id="addRun" class="btn btn-primary" disabled>Add to store</button>
+      </div>
+      <ul id="addFileList" class="file-list"></ul>
+      <div class="progress-wrap">
+        <div class="progress-bar"><div id="addProgress" class="progress-fill"></div></div>
+        <div id="addStatus" class="status">Ready</div>
+      </div>
+      <div id="addResult" class="add-result"></div>
+    </div>
+
+    <!-- Card 3: build report -->
+    <div class="card" id="reportCard">
+      <div class="card-title">Build report</div>
+      <div class="form-row">
+        <label class="radio"><input type="radio" name="rptMode" value="normal" checked> Normal MAU report</label>
+        <label class="radio"><input type="radio" name="rptMode" value="repeated"> MAU report with Repeated</label>
+      </div>
+      <div class="form-row">
+        <label class="field">From <input type="date" id="rptFrom"></label>
+        <label class="field">To <input type="date" id="rptTo"></label>
+      </div>
+      <div id="rptRepeatBox" class="repeat-box hidden">
+        <div class="form-row">
+          <label class="field">Look back from <input type="date" id="rptLookback"></label>
+          <span class="presets">
+            <button type="button" class="btn-chip" data-preset="month-start">1st of month</button>
+            <button type="button" class="btn-chip" data-preset="7d">7 days before</button>
+            <button type="button" class="btn-chip" data-preset="30d">30 days before</button>
+            <button type="button" class="btn-chip" data-preset="all">All stored</button>
+          </span>
+        </div>
+        <div id="rptWindow" class="window-note"></div>
+        <p class="muted card-note">The look-back always ends the day before the report starts, so the two windows can't overlap or leave a gap.</p>
+      </div>
+      <div id="rptMsgs" class="msgs"></div>
+      <div class="actions">
+        <button id="rptBuild" class="btn btn-primary" disabled>Build report</button>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-bar"><div id="rptProgress" class="progress-fill"></div></div>
+        <div id="rptStatus" class="status">Ready</div>
+      </div>
+      <div class="log-box-wrap">
+        <div class="log-box-label">Progress Log:</div>
+        <div id="rptLogBox" class="log-box"></div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- Modal for summary dialogs -->
@@ -154,6 +251,23 @@
   </div>
 </div>
 
+
+<!-- Form dialog (admin login / confirmations / reset) -->
+<div id="dlg" class="modal-overlay hidden">
+  <div class="modal-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <header class="modal-header">
+      <h2 id="dlgTitle">Confirm</h2>
+      <button id="dlgClose" class="modal-close" aria-label="Close">&times;</button>
+    </header>
+    <div id="dlgBody" class="dlg-body"></div>
+    <div id="dlgMsg" class="dlg-msg"></div>
+    <footer class="modal-footer">
+      <button id="dlgCancel" class="btn btn-secondary">Cancel</button>
+      <button id="dlgOk" class="btn btn-primary">OK</button>
+    </footer>
+  </div>
+</div>
+
 <footer class="app-footer">
   <span>All processing happens in your browser. Files never leave your machine.</span>
 </footer>
@@ -165,6 +279,7 @@
 
 <!-- App scripts -->
 <script src="js/processing.js"></script>
+<script src="js/store.js"></script>
 <script src="js/app.js"></script>
 
 </body>

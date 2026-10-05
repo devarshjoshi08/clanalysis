@@ -1,0 +1,1726 @@
+diff --git a/css/styles.css b/css/styles.css
+index 2f136e6..521cf9b 100644
+--- a/css/styles.css
++++ b/css/styles.css
+@@ -326,6 +326,100 @@ html, body {
+   margin-top: 40px;
+ }
+ 
++/* ===== Tab 4: Date-Range MAU Report ===== */
++.card {
++  background: var(--surface-2);
++  border: 1px solid var(--border);
++  border-radius: 6px;
++  padding: 16px 20px;
++  margin-bottom: 20px;
++}
++.card-title { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
++.card-sub { font-size: 12px; font-weight: 500; color: var(--text-muted); margin-left: 8px; }
++.card-note { font-size: 12px; margin: 0 0 12px 0; }
++.card-actions { margin-top: 14px; margin-bottom: 8px; align-items: center; }
++.muted { color: var(--text-muted); }
++.store-label {
++  background: var(--surface-3);
++  border-left: 4px solid var(--warning);
++  border-radius: 4px;
++  padding: 10px 14px;
++  font-size: 13px;
++  font-weight: 600;
++}
++.store-label.ok { border-left-color: var(--success); }
++.store-label.warn { border-left-color: var(--warning); }
++.store-label.error { border-left-color: var(--danger); }
++.coverage { display: flex; flex-wrap: wrap; gap: 14px 24px; margin-top: 12px; }
++.cov-month-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
++.cov-grid { display: grid; grid-template-columns: repeat(16, 20px); gap: 3px; }
++.cov-cell {
++  display: inline-block; width: 20px; height: 20px; border-radius: 3px;
++  font-size: 9px; line-height: 20px; text-align: center; font-style: normal;
++  border: 1px solid var(--border); color: var(--text-muted);
++}
++.cov-cell.stored { background: var(--success); border-color: var(--success); color: #04210f; font-weight: 700; }
++.cov-cell.gap { background: transparent; border: 1px dashed var(--warning); color: var(--warning); }
++.cov-cell.out { background: transparent; opacity: 0.35; }
++.coverage-legend { display: flex; gap: 16px; margin-top: 10px; font-size: 11px; color: var(--text-muted); }
++.coverage-legend .cov-cell { width: 12px; height: 12px; vertical-align: -2px; margin-right: 4px; }
++.admin-bar { margin-left: auto; display: inline-flex; gap: 14px; align-items: center; font-size: 12px; }
++.admin-on { color: var(--success); font-weight: 600; }
++.link-btn {
++  background: none; border: none; padding: 0; cursor: pointer;
++  color: var(--text-muted); font-size: 12px; text-decoration: underline;
++}
++.link-btn:hover { color: var(--text); }
++.link-btn.danger { color: var(--danger); }
++.form-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-bottom: 12px; }
++.field { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
++.radio { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
++input[type="date"], input[type="password"], input[type="text"] {
++  background: var(--surface-3); color: var(--text);
++  border: 1px solid var(--border); border-radius: 4px;
++  padding: 7px 10px; font-size: 13px; font-family: inherit;
++  color-scheme: dark;
++}
++input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus { outline: 2px solid var(--primary-light); outline-offset: 1px; }
++.repeat-box { border-left: 3px solid var(--border); padding: 4px 0 0 14px; margin-bottom: 8px; }
++.presets { display: inline-flex; gap: 6px; flex-wrap: wrap; }
++.btn-chip {
++  background: var(--surface-3); color: var(--text); border: 1px solid var(--border);
++  border-radius: 12px; padding: 4px 12px; font-size: 12px; cursor: pointer;
++}
++.btn-chip:hover:not(:disabled) { background: var(--border); }
++.btn-chip:disabled { opacity: 0.4; cursor: not-allowed; }
++.window-note { font-size: 12px; color: var(--success); font-weight: 600; min-height: 18px; margin-bottom: 6px; }
++.msgs { margin: 4px 0 14px 0; display: flex; flex-direction: column; gap: 6px; }
++.msg { padding: 8px 12px; border-radius: 4px; font-size: 12px; border-left: 4px solid; background: var(--surface-3); }
++.msg.error { border-left-color: var(--danger); color: #FCA5A5; }
++.msg.warn { border-left-color: var(--warning); color: #FCD34D; }
++.btn-danger { background: var(--danger); color: white; }
++.btn-danger:hover:not(:disabled) { background: #DC2626; }
++.btn-danger:disabled { background: var(--surface-3); color: var(--text-muted); cursor: not-allowed; }
++.add-result { margin-top: 12px; font-size: 12px; }
++.result-table { border-collapse: collapse; margin: 8px 0; min-width: 320px; }
++.result-table th, .result-table td { border: 1px solid var(--border); padding: 5px 12px; text-align: right; }
++.result-table th:first-child, .result-table td:first-child { text-align: left; }
++.result-table th { background: var(--surface-3); }
++.result-note { color: var(--text-muted); margin: 4px 0; }
++.result-note.warn { color: var(--warning); }
++
++/* Form dialog */
++.dlg { width: min(520px, 92vw); }
++.dlg-body { padding: 18px 20px 8px 20px; font-size: 13px; background: var(--surface-2); overflow-y: auto; }
++.dlg-body p { margin: 0 0 10px 0; }
++.dlg-body ul { margin: 6px 0 10px 0; padding-left: 20px; }
++.dlg-body input { width: 100%; margin-top: 6px; }
++.dlg-msg { padding: 0 20px 10px 20px; font-size: 12px; min-height: 8px; background: var(--surface-2); }
++.dlg-msg.error { color: var(--danger); }
++.dlg-msg.info { color: var(--text-muted); }
++
++@media (max-width: 640px) {
++  .admin-bar { margin-left: 0; width: 100%; }
++  .cov-grid { grid-template-columns: repeat(10, 20px); }
++}
++
+ /* ===== Responsive ===== */
+ @media (max-width: 640px) {
+   .content { padding: 20px 16px; }
+diff --git a/index.html b/index.html
+index aa734a5..10e125b 100644
+--- a/index.html
++++ b/index.html
+@@ -17,6 +17,7 @@
+   <button class="tab-btn active" data-tab="emails">Email Extractor</button>
+   <button class="tab-btn" data-tab="adobe">Adobe Data Preparation</button>
+   <button class="tab-btn" data-tab="paAdobe">Process + Adobe Data Preparation</button>
++  <button class="tab-btn" data-tab="range">Date-Range MAU Report</button>
+ </nav>
+ 
+ <main class="content">
+@@ -137,6 +138,102 @@
+     </div>
+   </section>
+ 
++
++  <!-- ============ TAB 4: DATE-RANGE MAU REPORT ============ -->
++  <section id="tab-range" class="tab-pane">
++    <div class="features">
++      <strong>Date-Range MAU Report</strong>
++      <p>Pick a date range and get the final Adobe summary for just that period &mdash; built from a shared <strong>daily store</strong> that an admin tops up with each day's content logs.</p>
++      <ul>
++        <li><strong>Normal report</strong> &mdash; MAU, logins and <code>First MAU Date</code> for the dates you pick.</li>
++        <li><strong>Report with Repeated</strong> &mdash; also pick a look-back start. Students who were already MAU in the look-back window show as <strong>Repeated</strong> (not New MAU).</li>
++        <li>Days follow India time (IST). The store label below always shows which dates are stored.</li>
++      </ul>
++      <p class="muted">Needs Chrome or Edge over http/https, and the <strong>Zoho WorkDrive TrueSync</strong> folder <code>Adobe MAU Store</code> (set to &ldquo;available offline&rdquo;). You pick that folder once; this page remembers it.</p>
++    </div>
++
++    <!-- Card 1: data store -->
++    <div class="card" id="storeCard">
++      <div class="card-title">Data store <span id="storeFolderName" class="card-sub"></span></div>
++      <div id="storeLabel" class="store-label">Choose the store folder to begin.</div>
++      <div id="storeCoverage" class="coverage"></div>
++      <div id="storeLegend" class="coverage-legend hidden">
++        <span><i class="cov-cell stored"></i> stored</span>
++        <span><i class="cov-cell gap"></i> missing</span>
++        <span><i class="cov-cell out"></i> outside stored dates</span>
++      </div>
++      <div class="actions card-actions">
++        <button id="storeChoose" class="btn btn-secondary">Choose store folder</button>
++        <button id="storeReconnect" class="btn btn-primary hidden">Reconnect store</button>
++        <button id="storeRefresh" class="btn btn-secondary" disabled>Refresh</button>
++        <span class="admin-bar">
++          <button id="adminLoginBtn" class="link-btn">Admin login</button>
++          <span id="adminOn" class="admin-on hidden">Admin mode on <button id="adminExitBtn" class="link-btn">Exit admin</button></span>
++          <button id="resetStoreBtn" class="link-btn danger hidden">Reset store (admin)</button>
++        </span>
++      </div>
++      <div id="storeMsg" class="status"></div>
++    </div>
++
++    <!-- Card 2: add daily logs (admin only) -->
++    <div class="card hidden" id="addCard">
++      <div class="card-title">Add daily logs <span class="card-sub">admin</span></div>
++      <p class="muted card-note">Select one or many raw Content-Log CSVs (any mix of days). Each row is filed under its own IST date; adding the same file twice never double-counts.</p>
++      <div class="actions">
++        <label class="btn btn-primary">
++          Select Content-Log Files
++          <input type="file" id="addFiles" multiple accept=".csv" hidden>
++        </label>
++        <button id="addClear" class="btn btn-secondary">Clear List</button>
++        <button id="addRun" class="btn btn-primary" disabled>Add to store</button>
++      </div>
++      <ul id="addFileList" class="file-list"></ul>
++      <div class="progress-wrap">
++        <div class="progress-bar"><div id="addProgress" class="progress-fill"></div></div>
++        <div id="addStatus" class="status">Ready</div>
++      </div>
++      <div id="addResult" class="add-result"></div>
++    </div>
++
++    <!-- Card 3: build report -->
++    <div class="card" id="reportCard">
++      <div class="card-title">Build report</div>
++      <div class="form-row">
++        <label class="radio"><input type="radio" name="rptMode" value="normal" checked> Normal MAU report</label>
++        <label class="radio"><input type="radio" name="rptMode" value="repeated"> MAU report with Repeated</label>
++      </div>
++      <div class="form-row">
++        <label class="field">From <input type="date" id="rptFrom"></label>
++        <label class="field">To <input type="date" id="rptTo"></label>
++      </div>
++      <div id="rptRepeatBox" class="repeat-box hidden">
++        <div class="form-row">
++          <label class="field">Look back from <input type="date" id="rptLookback"></label>
++          <span class="presets">
++            <button type="button" class="btn-chip" data-preset="month-start">1st of month</button>
++            <button type="button" class="btn-chip" data-preset="7d">7 days before</button>
++            <button type="button" class="btn-chip" data-preset="30d">30 days before</button>
++            <button type="button" class="btn-chip" data-preset="all">All stored</button>
++          </span>
++        </div>
++        <div id="rptWindow" class="window-note"></div>
++        <p class="muted card-note">The look-back always ends the day before the report starts, so the two windows can't overlap or leave a gap.</p>
++      </div>
++      <div id="rptMsgs" class="msgs"></div>
++      <div class="actions">
++        <button id="rptBuild" class="btn btn-primary" disabled>Build report</button>
++      </div>
++      <div class="progress-wrap">
++        <div class="progress-bar"><div id="rptProgress" class="progress-fill"></div></div>
++        <div id="rptStatus" class="status">Ready</div>
++      </div>
++      <div class="log-box-wrap">
++        <div class="log-box-label">Progress Log:</div>
++        <div id="rptLogBox" class="log-box"></div>
++      </div>
++    </div>
++  </section>
++
+ </main>
+ 
+ <!-- Modal for summary dialogs -->
+@@ -154,6 +251,23 @@
+   </div>
+ </div>
+ 
++
++<!-- Form dialog (admin login / confirmations / reset) -->
++<div id="dlg" class="modal-overlay hidden">
++  <div class="modal-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
++    <header class="modal-header">
++      <h2 id="dlgTitle">Confirm</h2>
++      <button id="dlgClose" class="modal-close" aria-label="Close">&times;</button>
++    </header>
++    <div id="dlgBody" class="dlg-body"></div>
++    <div id="dlgMsg" class="dlg-msg"></div>
++    <footer class="modal-footer">
++      <button id="dlgCancel" class="btn btn-secondary">Cancel</button>
++      <button id="dlgOk" class="btn btn-primary">OK</button>
++    </footer>
++  </div>
++</div>
++
+ <footer class="app-footer">
+   <span>All processing happens in your browser. Files never leave your machine.</span>
+ </footer>
+@@ -165,6 +279,7 @@
+ 
+ <!-- App scripts -->
+ <script src="js/processing.js"></script>
++<script src="js/store.js"></script>
+ <script src="js/app.js"></script>
+ 
+ </body>
+diff --git a/js/app.js b/js/app.js
+index 5a22dd1..f5eb79e 100644
+--- a/js/app.js
++++ b/js/app.js
+@@ -456,4 +456,540 @@
+     }
+   });
+ 
++  /* ============================================================
++   * TAB 4 — Date-Range MAU Report  (persistent daily store)
++   * All data work lives in window.Store (store.js); this is only the screen.
++   * ============================================================ */
++  const T4 = {
++    summary: null,      // Store.summarize(...) of the current store
++    manifest: null,
++    addList: [],        // raw content-log files queued for "Add to store"
++    busy: false         // an add / report / reset is running
++  };
++  const r$ = id => document.getElementById(id);
++
++  const storeFolderName = r$('storeFolderName'), storeLabel = r$('storeLabel');
++  const storeCoverage = r$('storeCoverage'), storeLegend = r$('storeLegend');
++  const storeChoose = r$('storeChoose'), storeReconnect = r$('storeReconnect'), storeRefresh = r$('storeRefresh');
++  const adminLoginBtn = r$('adminLoginBtn'), adminOn = r$('adminOn'), adminExitBtn = r$('adminExitBtn');
++  const resetStoreBtn = r$('resetStoreBtn'), storeMsg = r$('storeMsg');
++  const addCard = r$('addCard'), addFilesInput = r$('addFiles'), addClearBtn = r$('addClear'), addRunBtn = r$('addRun');
++  const addFileList = r$('addFileList'), addProgress = r$('addProgress'), addStatus = r$('addStatus'), addResult = r$('addResult');
++  const rptFrom = r$('rptFrom'), rptTo = r$('rptTo'), rptLookback = r$('rptLookback');
++  const rptRepeatBox = r$('rptRepeatBox'), rptWindow = r$('rptWindow'), rptMsgs = r$('rptMsgs');
++  const rptBuildBtn = r$('rptBuild'), rptProgress = r$('rptProgress'), rptStatus = r$('rptStatus'), rptLogBox = r$('rptLogBox');
++
++  function rptLog(msg, type = 'info') {
++    if (!msg) return;
++    const entry = document.createElement('div');
++    entry.className = `log-entry ${type}`;
++    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
++    rptLogBox.appendChild(entry);
++    rptLogBox.scrollTop = rptLogBox.scrollHeight;
++  }
++  const el = (tag, cls, text) => {
++    const n = document.createElement(tag);
++    if (cls) n.className = cls;
++    if (text != null) n.textContent = text;
++    return n;
++  };
++  const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`;
++
++  /* ---------- small form dialog (login / confirm / reset) ---------- */
++  const dlg = r$('dlg'), dlgTitle = r$('dlgTitle'), dlgBody = r$('dlgBody'), dlgMsg = r$('dlgMsg');
++  const dlgOk = r$('dlgOk'), dlgCancel = r$('dlgCancel'), dlgClose = r$('dlgClose');
++  let dlgState = null;
++
++  /**
++   * Show the dialog. `body` is a string or a DOM node. `onOk` (optional, async) runs when OK is pressed:
++   * return false to keep the dialog open (it should have set a message with `say`), anything else closes it
++   * and becomes the resolved value (undefined → true). Cancel / Esc / × resolve null.
++   */
++  function openDialog({ title, body, okText = 'OK', cancelText = 'Cancel', danger = false, onOk, onOpen }) {
++    return new Promise(resolve => {
++      if (dlgState) dlgState.finish(null);
++      dlgTitle.textContent = title;
++      dlgBody.textContent = '';
++      if (typeof body === 'string') dlgBody.appendChild(el('p', '', body)); else if (body) dlgBody.appendChild(body);
++      dlgMsg.textContent = ''; dlgMsg.className = 'dlg-msg';
++      dlgOk.textContent = okText; dlgOk.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary'); dlgOk.disabled = false;
++      dlgCancel.textContent = cancelText || 'Cancel';
++      dlgCancel.classList.toggle('hidden', !cancelText);
++      dlg.classList.remove('hidden');
++      const say = (text, type = 'error') => { dlgMsg.textContent = text; dlgMsg.className = 'dlg-msg ' + type; };
++      let cleanup = null;
++      const finish = value => {
++        if (!dlgState) return;
++        dlgState = null;
++        if (cleanup) { try { cleanup(); } catch (_) { /* ignore */ } }
++        dlg.classList.add('hidden');
++        resolve(value);
++      };
++      dlgState = {
++        finish, say, busy: false,
++        submit: async () => {
++          if (dlgOk.disabled || (dlgState && dlgState.busy)) return;
++          dlgState.busy = true; dlgOk.disabled = true;
++          let out;
++          try { out = onOk ? await onOk(say) : true; }
++          catch (e) { say(e && e.message ? e.message : String(e)); out = false; }
++          if (!dlgState) return;          // closed while running
++          dlgState.busy = false;
++          if (out === false) { if (!dlgState.locked) dlgOk.disabled = false; return; }
++          finish(out === undefined ? true : out);
++        }
++      };
++      if (onOpen) cleanup = onOpen({ say, ok: dlgOk, body: dlgBody, submit: () => dlgState && dlgState.submit() }) || null;
++    });
++  }
++  dlgOk.addEventListener('click', () => { if (dlgState) dlgState.submit(); });
++  dlgCancel.addEventListener('click', () => { if (dlgState && !dlgState.busy) dlgState.finish(null); });
++  dlgClose.addEventListener('click', () => { if (dlgState && !dlgState.busy) dlgState.finish(null); });
++  document.addEventListener('keydown', e => {
++    if (e.key === 'Escape' && dlgState && !dlgState.busy) dlgState.finish(null);
++  });
++
++  /* ---------- store card ---------- */
++  function setStoreMsg(text, type = '') { setStatus(storeMsg, text, type); }
++
++  function renderLabel() {
++    storeLabel.className = 'store-label';
++    if (!Store.isConnected()) return;
++    if (!T4.summary) { storeLabel.textContent = 'Reading the store…'; return; }
++    storeLabel.textContent = Store.formatLabel(T4.summary);
++    storeLabel.classList.add(T4.summary.empty || T4.summary.missingDays.length ? 'warn' : 'ok');
++  }
++
++  function renderCoverage() {
++    storeCoverage.textContent = '';
++    const grid = T4.manifest ? Store.coverageGrid(T4.manifest) : [];
++    storeLegend.classList.toggle('hidden', grid.length === 0);
++    for (const m of grid) {
++      const box = el('div', 'cov-month');
++      box.appendChild(el('div', 'cov-month-label', m.label));
++      const g = el('div', 'cov-grid');
++      for (const d of m.days) {
++        const c = el('i', 'cov-cell ' + (d.stored ? 'stored' : (d.inRange ? 'gap' : 'out')), String(+d.day.slice(8)));
++        c.title = d.stored
++          ? `${Store.fmtDMY(d.day)} — ${d.students.toLocaleString()} students, ${d.mau.toLocaleString()} MAU`
++          : (d.inRange ? `${Store.fmtDMY(d.day)} — no data (missing)` : `${Store.fmtDMY(d.day)} — outside stored dates`);
++        g.appendChild(c);
++      }
++      box.appendChild(g);
++      storeCoverage.appendChild(box);
++    }
++  }
++
++  /** Hint the pickers with the stored range, and pre-fill From/To (1st of the latest stored month → latest day) while empty. */
++  function applyDateHints() {
++    const s = T4.summary, has = !!(s && !s.empty);
++    for (const i of [rptFrom, rptTo]) { i.min = has ? s.firstDay : ''; i.max = has ? s.lastDay : ''; }
++    if (has && !rptFrom.value && !rptTo.value) {
++      const monthStart = s.lastDay.slice(0, 7) + '-01';
++      rptFrom.value = monthStart > s.firstDay ? monthStart : s.firstDay;
++      rptTo.value = s.lastDay;
++    }
++  }
++
++  /** Re-read the store (manifest) and redraw the label, coverage strip and report checks. */
++  async function refreshStore(quiet) {
++    if (!Store.isConnected()) { T4.summary = null; T4.manifest = null; }
++    else {
++      try {
++        const { manifest, summary } = await Store.getSummary();
++        T4.manifest = manifest; T4.summary = summary;
++        if (!quiet) setStoreMsg('');
++      } catch (e) {
++        T4.manifest = null; T4.summary = null;
++        storeLabel.className = 'store-label error';
++        storeLabel.textContent = `Could not read the store: ${e.message}`;
++        renderCoverage(); renderAdmin(); renderValidation();
++        return;
++      }
++    }
++    applyDateHints();
++    renderLabel(); renderCoverage(); renderAdmin(); renderValidation();
++  }
++
++  function renderFolder(state) {
++    const connected = state && state.state === 'ready';
++    storeFolderName.textContent = connected ? `— folder: ${state.name}` : '';
++    storeChoose.textContent = connected ? 'Change folder' : 'Choose store folder';
++    storeChoose.classList.toggle('btn-primary', !connected && !(state && state.state === 'needs-permission'));
++    storeChoose.classList.toggle('btn-secondary', connected || (state && state.state === 'needs-permission'));
++    storeReconnect.classList.toggle('hidden', !(state && state.state === 'needs-permission'));
++    if (state && state.state === 'needs-permission') storeReconnect.textContent = `Reconnect store (${state.name})`;
++    storeRefresh.disabled = !connected;
++    storeChoose.disabled = !!(state && state.state === 'unsupported');
++    if (!connected) {
++      storeLabel.className = 'store-label' + (state && state.state === 'unsupported' ? ' error' : ' warn');
++      storeLabel.textContent =
++        state && state.state === 'unsupported' ? "This browser can't open folders. Please use Chrome or Edge on a desktop (over http/https)."
++        : state && state.state === 'needs-permission' ? `Click “Reconnect store” to reopen “${state.name}” (the browser asks once per visit).`
++        : 'Choose the store folder to begin (the “Adobe MAU Store” folder synced by WorkDrive TrueSync).';
++      T4.summary = null; T4.manifest = null;
++      renderCoverage(); renderAdmin(); renderValidation();
++    }
++  }
++
++  async function onFolderState(state) {
++    renderFolder(state);
++    if (state.state === 'ready') await refreshStore();
++  }
++
++  storeChoose.addEventListener('click', async () => {
++    try {
++      const st = await Store.pickFolder();
++      if (st.state === 'cancelled') return;
++      T4.addList = []; renderAddList();
++      await onFolderState(st);
++      setStoreMsg(`Store folder set to “${st.name}”. This page will remember it.`, 'success');
++    } catch (e) { setStoreMsg(e.message, 'error'); }
++  });
++  storeReconnect.addEventListener('click', async () => {
++    try { await onFolderState(await Store.reconnect()); }
++    catch (e) { setStoreMsg(e.message, 'error'); }
++  });
++  storeRefresh.addEventListener('click', async () => {
++    storeRefresh.disabled = true;
++    await refreshStore(true);
++    storeRefresh.disabled = !Store.isConnected();
++    setStoreMsg('Store re-read.', 'success');
++  });
++  // Pick up days that TrueSync delivered while the page sat in the background.
++  window.addEventListener('focus', () => {
++    if (Store.isConnected() && !T4.busy && !dlgState) refreshStore(true);
++  });
++
++  /* ---------- admin mode ---------- */
++  function renderAdmin() {
++    const admin = Store.isAdmin();
++    adminLoginBtn.classList.toggle('hidden', admin);
++    adminOn.classList.toggle('hidden', !admin);
++    resetStoreBtn.classList.toggle('hidden', !admin);
++    addCard.classList.toggle('hidden', !(admin && Store.isConnected()));
++    addRunBtn.disabled = T4.busy || !T4.addList.length;
++  }
++
++  adminLoginBtn.addEventListener('click', async () => {
++    const wrap = el('div');
++    wrap.appendChild(el('p', '', 'Enter the admin password to add daily logs or reset the store.'));
++    const input = el('input'); input.type = 'password'; input.autocomplete = 'off'; input.placeholder = 'Admin password';
++    wrap.appendChild(input);
++    wrap.appendChild(el('p', 'muted', 'Admin mode lasts until you close this page.'));
++    const ok = await openDialog({
++      title: 'Admin login', body: wrap, okText: 'Log in',
++      onOpen: ({ say, ok: okBtn, submit }) => {
++        setTimeout(() => input.focus(), 30);
++        let timer = null;
++        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
++        dlgState.lock = secs => {
++          dlgState.locked = true; okBtn.disabled = true; input.disabled = true;
++          const until = Date.now() + secs * 1000;
++          const tick = () => {
++            const left = Math.ceil((until - Date.now()) / 1000);
++            if (left <= 0) { clearInterval(timer); timer = null; if (dlgState) dlgState.locked = false; okBtn.disabled = false; input.disabled = false; say('You can try again now.', 'info'); input.focus(); }
++            else say(`Too many wrong tries. Try again in ${left}s.`);
++          };
++          clearInterval(timer); timer = setInterval(tick, 500); tick();
++        };
++        return () => { if (timer) clearInterval(timer); };
++      },
++      onOk: async say => {
++        const res = await Store.adminLogin(input.value);
++        if (res.ok) return true;
++        input.value = '';
++        if (res.locked) { dlgState.lock(res.secondsLeft || 30); return false; }
++        say(res.message || 'Incorrect admin password.');
++        input.focus();
++        return false;
++      }
++    });
++    if (ok) { renderAdmin(); setStoreMsg('Admin mode is on until you close this page.', 'success'); }
++  });
++  adminExitBtn.addEventListener('click', () => {
++    Store.exitAdmin();
++    T4.addList = []; renderAddList();
++    renderAdmin();
++    setStoreMsg('Admin mode is off.');
++  });
++
++  /* ---------- add daily logs (admin) ---------- */
++  function renderAddList() {
++    addFileList.textContent = '';
++    for (const f of T4.addList) addFileList.appendChild(el('li', '', f.name));
++    addRunBtn.disabled = T4.busy || !T4.addList.length;
++  }
++  addFilesInput.addEventListener('change', e => {
++    const picked = Array.from(e.target.files || []);
++    if (!picked.length) return;
++    for (const f of picked) if (!T4.addList.some(x => x.name === f.name && x.size === f.size)) T4.addList.push(f);
++    renderAddList();
++    addResult.textContent = '';
++    setStatus(addStatus, `${plural(T4.addList.length, 'file')} selected. Click “Add to store”.`, 'success');
++    addFilesInput.value = '';
++  });
++  addClearBtn.addEventListener('click', () => {
++    T4.addList = []; renderAddList(); addResult.textContent = '';
++    setProgress(addProgress, 0); setStatus(addStatus, 'File list cleared');
++  });
++
++  function renderAddResult(res) {
++    addResult.textContent = '';
++    const tbl = el('table', 'result-table');
++    const head = el('tr');
++    for (const h of ['Day (IST)', 'Students', 'MAU', 'Files']) head.appendChild(el('th', '', h));
++    tbl.appendChild(head);
++    for (const d of res.days) {
++      const tr = el('tr');
++      [Store.fmtDMY(d.day), d.students.toLocaleString(), d.mau.toLocaleString(), String(d.files)].forEach(t => tr.appendChild(el('td', '', t)));
++      tbl.appendChild(tr);
++    }
++    addResult.appendChild(el('div', '', `Added ${plural(res.days.length, 'day')} to the store:`));
++    addResult.appendChild(tbl);
++    for (const f of res.perFile) {
++      const skipped = [];
++      if (f.system) skipped.push(`${f.system.toLocaleString()} Adobe/guest`);
++      if (f.noEmail) skipped.push(`${f.noEmail.toLocaleString()} blank`);
++      if (f.badDate) skipped.push(`${f.badDate.toLocaleString()} bad date`);
++      addResult.appendChild(el('div', 'result-note',
++        `${f.name}: ${f.kept.toLocaleString()} of ${f.rows.toLocaleString()} rows used` +
++        (skipped.length ? ` (skipped ${skipped.join(', ')})` : '') +
++        (f.days.length ? ` → ${Store.compressDays(f.days)}` : '')));
++    }
++    if (res.duplicateFiles && res.duplicateFiles.length) {
++      addResult.appendChild(el('div', 'result-note warn',
++        `Already added earlier: ${res.duplicateFiles.join(', ')} — re-adding never double-counts, so nothing changed for those rows.`));
++    }
++    addResult.appendChild(el('div', 'result-note', 'Saved into the synced folder — TrueSync uploads it to WorkDrive shortly.'));
++  }
++
++  addRunBtn.addEventListener('click', async () => {
++    if (!T4.addList.length || T4.busy) return;
++    if (!Store.isAdmin()) { setStatus(addStatus, 'Admin login required.', 'error'); return; }
++    T4.busy = true; renderAdmin();
++    addClearBtn.disabled = true; addResult.textContent = '';
++    setProgress(addProgress, 0);
++    try {
++      // Needs the click's user activation, so it goes first.
++      await Store.ensureWritable();
++      const parsed = await Store.parseLogFiles(T4.addList, ({ fileIndex, fileCount, name, pct }) => {
++        setProgress(addProgress, ((fileIndex + pct / 100) / fileCount) * 90);
++        setStatus(addStatus, `Reading ${name} (${fileIndex + 1} of ${fileCount}) — ${Math.round(pct)}%`);
++      });
++      if (!parsed.days.size) throw new Error('No usable rows found. The files need Action, Date and User Email columns.');
++      setStatus(addStatus, 'Saving to the store…'); setProgress(addProgress, 94);
++      let res = await Store.commitParsed(parsed);
++      if (res.needsConfirm) {
++        const go = await openDialog({ title: 'Different month in these files', body: res.guard.message, okText: 'Continue anyway', cancelText: 'Cancel' });
++        if (!go) { setStatus(addStatus, 'Cancelled — nothing was added.'); setProgress(addProgress, 0); return; }
++        res = await Store.commitParsed(parsed, { confirmMixedMonths: true });
++      }
++      setProgress(addProgress, 100);
++      setStatus(addStatus, `Done — ${plural(res.days.length, 'day')} updated.`, 'success');
++      renderAddResult(res);
++      T4.addList = []; renderAddList();
++      await refreshStore(true);
++    } catch (e) {
++      console.error(e);
++      setStatus(addStatus, `Error: ${e.message}`, 'error');
++      setProgress(addProgress, 0);
++    } finally {
++      T4.busy = false; addClearBtn.disabled = false; renderAdmin();
++    }
++  });
++
++  /* ---------- reset (admin) ---------- */
++  resetStoreBtn.addEventListener('click', async () => {
++    if (!Store.isAdmin() || T4.busy) return;
++    try { await Store.ensureWritable(); }       // user activation first
++    catch (e) { setStoreMsg(e.message, 'error'); return; }
++    let manifest;
++    try { manifest = await Store.loadManifest(); } catch (e) { setStoreMsg(e.message, 'error'); return; }
++    const s = Store.summarize(manifest);
++    if (s.empty) { setStoreMsg('The store is already empty — nothing to reset.'); return; }
++    const month = s.firstDay.slice(0, 7);
++
++    const wrap = el('div');
++    wrap.appendChild(el('p', '', `This archives all ${plural(s.dayCount, 'stored day')} (${Store.fmtDMY(s.firstDay)} to ${Store.fmtDMY(s.lastDay)}) into the folder archive/${month} and empties the store. Nothing is deleted — the data stays in the archive folder.`));
++    wrap.appendChild(el('p', '', 'Type RESET to confirm:'));
++    const input = el('input'); input.type = 'text'; input.autocomplete = 'off'; input.placeholder = 'RESET';
++    wrap.appendChild(input);
++
++    T4.busy = true;
++    const done = await openDialog({
++      title: 'Reset the store', body: wrap, okText: 'Archive and reset', danger: true,
++      onOpen: ({ ok: okBtn, submit }) => {
++        okBtn.disabled = true;
++        setTimeout(() => input.focus(), 30);
++        input.addEventListener('input', () => { okBtn.disabled = input.value.trim() !== 'RESET'; });
++        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); if (!okBtn.disabled) submit(); } });
++      },
++      onOk: async say => {
++        if (input.value.trim() !== 'RESET') { say('Type RESET (capitals) to confirm.'); return false; }
++        say('Archiving…', 'info');
++        return await Store.resetStore();
++      }
++    });
++    T4.busy = false;
++    if (done && done.archivedTo) {
++      rptFrom.value = ''; rptTo.value = ''; rptLookback.value = '';     // the old dates no longer exist in the store
++      await refreshStore(true);
++      setStoreMsg(`Store reset. ${plural(done.dayCount, 'day')} archived to ${done.archivedTo}.`, 'success');
++      showModal('Store reset',
++        `Archived ${plural(done.dayCount, 'day')} (${Store.fmtDMY(done.firstDay)} to ${Store.fmtDMY(done.lastDay)}) to:\n  ${done.archivedTo}\n\n` +
++        'The store is now empty — add the new month\'s files to start again. The archive folder is kept in WorkDrive.');
++    }
++    renderAdmin();
++  });
++
++  /* ---------- report form ---------- */
++  function readParams() {
++    const mode = (document.querySelector('input[name="rptMode"]:checked') || {}).value === 'repeated' ? 'repeated' : 'normal';
++    return { mode, from: rptFrom.value, to: rptTo.value, lookbackFrom: rptLookback.value };
++  }
++
++  /** Live checks: red = blocked, amber = allowed after a confirm. */
++  function renderValidation() {
++    const p = readParams();
++    rptRepeatBox.classList.toggle('hidden', p.mode !== 'repeated');
++    const connected = Store.isConnected() && !!T4.summary;
++    const v = Store.validateRange(p, connected ? T4.summary : null, Store.todayKey());
++    rptMsgs.textContent = '';
++    if (!connected) {
++      rptMsgs.appendChild(el('div', 'msg error', Store.isConnected() ? 'Reading the store…' : 'Choose the store folder first.'));
++    } else {
++      // Don't shout about empty fields before the user has touched the form (an empty store is always shown).
++      const touched = !!(p.from || p.to || p.lookbackFrom);
++      for (const e of v.errors) if (touched || e.code === 'store-empty') rptMsgs.appendChild(el('div', 'msg error', e.msg));
++      for (const w of v.warnings) rptMsgs.appendChild(el('div', 'msg warn', w.msg));
++    }
++
++    const days = w => Store.dayRange(w.from, w.to).length;
++    let note = '';
++    if (v.windows.report && v.windows.report.from <= v.windows.report.to) {
++      note = `Report: ${Store.fmtDMY(v.windows.report.from)} to ${Store.fmtDMY(v.windows.report.to)} (${plural(days(v.windows.report), 'day')})`;
++      if (p.mode === 'repeated' && v.windows.lookback) note += `  ·  Look-back: ${Store.fmtDMY(v.windows.lookback.from)} to ${Store.fmtDMY(v.windows.lookback.to)} (${plural(days(v.windows.lookback), 'day')})`;
++    }
++    rptWindow.textContent = note;
++    document.querySelectorAll('#rptRepeatBox .btn-chip').forEach(b => { b.disabled = !Store.isDayKey(p.from); });
++    rptBuildBtn.disabled = T4.busy || !connected || v.errors.length > 0;
++    return v;
++  }
++
++  [rptFrom, rptTo, rptLookback].forEach(i => { i.addEventListener('input', renderValidation); i.addEventListener('change', renderValidation); });
++  document.querySelectorAll('input[name="rptMode"]').forEach(r => r.addEventListener('change', renderValidation));
++  document.querySelectorAll('#rptRepeatBox .btn-chip').forEach(b => b.addEventListener('click', () => {
++    const k = Store.lookbackPreset(b.dataset.preset, rptFrom.value, T4.summary);
++    if (!k) { rptWindow.textContent = 'That shortcut starts on or after the report’s From date — pick the look-back date yourself.'; return; }
++    rptLookback.value = k;
++    renderValidation();
++  }));
++
++  rptBuildBtn.addEventListener('click', async () => {
++    if (T4.busy) return;
++    const p = readParams();
++    const v = renderValidation();
++    if (v.errors.length) return;
++
++    if (v.warnings.length) {
++      const list = el('ul');
++      for (const w of v.warnings) list.appendChild(el('li', '', w.msg));
++      const wrap = el('div');
++      wrap.appendChild(el('p', '', 'Please check before building:'));
++      wrap.appendChild(list);
++      const go = await openDialog({ title: 'Check your date range', body: wrap, okText: 'Build anyway', cancelText: 'Go back' });
++      if (!go) return;
++    }
++
++    // Save location first: the picker needs a fresh click, which the long build would outlive.
++    const filename = Store.reportFilename(p);
++    const pickerSupported = Processing.saveFolderPickerSupported();
++    const saveHandle = await Processing.pickSaveHandle(filename);
++    if (saveHandle === null) { setStatus(rptStatus, 'Save cancelled — nothing was built'); return; }
++
++    T4.busy = true; rptBuildBtn.disabled = true;
++    setProgress(rptProgress, 0);
++    rptLogBox.textContent = '';
++    rptLog(`Starting: ${p.mode === 'repeated' ? 'MAU report with Repeated' : 'MAU report'} for ${Store.fmtDMY(p.from)} to ${Store.fmtDMY(p.to)}`, 'info');
++    if (!pickerSupported) rptLog('Folder picker unavailable in this browser — the file will download to your Downloads folder.', 'error');
++
++    try {
++      const result = await Store.runRangeReport(
++        p,
++        msg => { setStatus(rptStatus, msg); rptLog(msg, 'info'); },
++        pct => setProgress(rptProgress, pct)
++      );
++      const rg = result.range;
++
++      const cutoffLines = result.mauDist.slice(0, -1).map(r => `  ${r['MAU % Range']}: ${r['No. of Schools']}`).join('\n');
++      const rep = result.repeated;
++      const repeatLines = rep
++        ? `\n\nRepeated analysis (look-back ${Store.fmtDMY(rg.lookbackFrom)} to ${Store.fmtDMY(rg.lookbackTo)}):\n` +
++          `  New MAU (in report period only): ${rep.newMau.toLocaleString()}\n` +
++          `  Repeated (MAU in both periods): ${rep.repeated.toLocaleString()}\n` +
++          `  Completed earlier (look-back only): ${(rep.completedEarlier || 0).toLocaleString()}\n` +
++          `  Pending (no MAU in either period): ${rep.pending.toLocaleString()}`
++        : '';
++
++      const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
++      const savedNote = outcome === 'saved'
++        ? `\n\nSaved as: ${saveHandle.name}`
++        : '\n\nThis browser can\'t open a folder picker (only Chrome or Edge over http/https can), so the file was downloaded to your Downloads folder instead.';
++      if (outcome === 'saved') rptLog(`Saved as: ${saveHandle.name}`, 'success');
++
++      let pendingNote = '';
++      if (result.pendingCsvBlob) {
++        Processing.triggerDownload(result.pendingCsvBlob, result.pendingCsvName);
++        pendingNote = `\n\nPending follow-up list downloaded separately as ${result.pendingCsvName} (in your Downloads).`;
++        rptLog(`Pending follow-up list saved as ${result.pendingCsvName} (Downloads).`, 'info');
++      }
++
++      const gapNote = (label, m) => {
++        if (!m) return '';
++        const parts = [];
++        if (m.gaps.length) parts.push(`no data for ${Store.compressDays(m.gaps)}`);
++        if (m.outside.length) parts.push(`outside the store: ${Store.compressDays(m.outside)}`);
++        return parts.length ? `\n  ${label}: ${parts.join('; ')}` : '';
++      };
++      const gaps = gapNote('Report period', rg.missingCurrent) + gapNote('Look-back', rg.missingLookback);
++
++      const msg =
++        'Date-range report complete!\n\n' +
++        `File: ${result.filename}\n` +
++        `Report period: ${Store.fmtDMY(rg.from)} to ${Store.fmtDMY(rg.to)} (${plural(rg.storedDays, 'stored day')} used)\n` +
++        (rg.lookbackFrom ? `Look-back: ${Store.fmtDMY(rg.lookbackFrom)} to ${Store.fmtDMY(rg.lookbackTo)}\n` : '') +
++        (gaps ? `Note:${gaps}\n` : '') +
++        `\nStudents in roster: ${result.totalStudents.toLocaleString()}\n` +
++        (rep
++          ? `MAU in report period: ${result.mauStudents.toLocaleString()} (New ${rep.newMau.toLocaleString()} + Repeated ${rep.repeated.toLocaleString()})\n`
++          : `Marked Completed MAU: ${result.mauStudents.toLocaleString()}\n`) +
++        `First MAU Date filled: ${(result.mauWithDate ?? 0).toLocaleString()}\n` +
++        `Marked Logged In: ${result.logStudents.toLocaleString()}\n\n` +
++        `MAU % cutoff (schools${rep ? ', New MAU only' : ''}):\n${cutoffLines}` +
++        repeatLines + pendingNote;
++
++      rptLog(rep
++        ? `Done — ${rep.newMau.toLocaleString()} new + ${rep.repeated.toLocaleString()} repeated MAU, ${result.logStudents.toLocaleString()} logged-in, of ${result.totalStudents.toLocaleString()} students`
++        : `Done — ${result.mauStudents.toLocaleString()} MAU / ${result.logStudents.toLocaleString()} logged-in of ${result.totalStudents.toLocaleString()} students`, 'success');
++      setStatus(rptStatus, outcome === 'saved' ? 'Report saved!' : 'Report downloaded to your Downloads folder.', 'success');
++      showModal('Date-Range MAU Report', msg + savedNote, { blob: result.blob, filename: result.filename });
++    } catch (err) {
++      console.error(err);
++      rptLog(`ERROR: ${err.message}`, 'error');
++      setStatus(rptStatus, `Error: ${err.message}`, 'error');
++      showModal('Error', `Error building the report:\n\n${err.message}`);
++    } finally {
++      T4.busy = false;
++      renderValidation();
++    }
++  });
++
++  /* ---------- start-up: reconnect to the remembered folder ---------- */
++  (async () => {
++    renderAdmin(); renderValidation();
++    try { await onFolderState(await Store.restoreFolder()); }
++    catch (e) { setStoreMsg(e.message, 'error'); }
++  })();
++
+ })();
+diff --git a/js/processing.js b/js/processing.js
+index 3a270f9..ecf3a71 100644
+--- a/js/processing.js
++++ b/js/processing.js
+@@ -622,8 +622,31 @@ function computeRepeatedSummary(rows) {
+   return rowsOut;
+ }
+ 
+-function computeSchoolDistribution(rows) {
+-  // Group by schoolCode → {total, mau}, then bucket
++/**
++ * Tab 4 With-Repeated summaries: show New MAU, Repeated and Total active side by
++ * side. computeSummaries() already counts "MAU's Students" as NEW MAU only and
++ * has a 'Repeated MAU' column when week-over-week is on; here we rename those
++ * for the date-range report and add Total active (New + Repeated) + % Total active.
++ * Tab 3 never calls this, so its columns stay exactly as they were.
++ */
++function relabelRangeSummaries(summaries) {
++  const conv = df => (df || []).map(r => {
++    const o = {};
++    const totalActive = (Number(r["MAU's Students"]) || 0) + (Number(r['Repeated MAU']) || 0);
++    for (const [k, v] of Object.entries(r)) {
++      if (k === "MAU's Students") o['New MAU'] = v;
++      else if (k === 'Repeated MAU') { o['Repeated'] = v; o['Total active'] = totalActive; }
++      else if (k === '% MAU Completion') { o['% MAU (New)'] = v; o['% Total active'] = safePct(totalActive, r['Total Students']); }
++      else o[k] = v;
++    }
++    return o;
++  });
++  return { stateDf: conv(summaries.stateDf), licDf: conv(summaries.licDf), leadDf: conv(summaries.leadDf), mgrDf: conv(summaries.mgrDf) };
++}
++
++function computeSchoolDistribution(rows, newOnly = false) {
++  // Group by schoolCode → {total, mau}, then bucket.
++  // newOnly (Tab 4 With-Repeated): count only NEW MAU students, so Repeated ones don't inflate a school's %.
+   const bySchool = new Map();
+   for (const r of rows) {
+     const sc = r['schoolCode'];
+@@ -631,7 +654,7 @@ function computeSchoolDistribution(rows) {
+     if (!bySchool.has(sc)) bySchool.set(sc, { total: 0, mau: 0 });
+     const s = bySchool.get(sc);
+     s.total++;
+-    if (isYes(r['Completed MAU?'])) s.mau++;
++    if (newOnly ? r._newMau : isYes(r['Completed MAU?'])) s.mau++;
+   }
+   const labels = ['0% to 20%', '20% to 40%', '40% to 60%', '60% to 80%', '80% to 100%'];
+   const buckets = [0, 0, 0, 0, 0];
+@@ -804,6 +827,12 @@ const PA_RAW_COLS = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name',
+ const PA_DATE_COLS = new Set(['First MAU Date']);
+ // Repeated / Pending student lists also show last-week status.
+ const PA_LIST_COLS = PA_RAW_COLS.concat(['Was MAU Last Week', 'MAU Status']);
++/** PA_LIST_COLS with the "was MAU earlier" header renamed (Tab 4 uses 'MAU in Look-back'). */
++function paListCols(label) {
++  return (label && label !== 'Was MAU Last Week')
++    ? PA_LIST_COLS.map(c => c === 'Was MAU Last Week' ? label : c)
++    : PA_LIST_COLS;
++}
+ 
+ /** A plain data sheet: red header row + rows for the given columns. */
+ function addRowSheet(wb, sheetName, cols, rows) {
+@@ -844,16 +873,17 @@ function addTitledTableSheet(wb, sheetName, title, dfRows) {
+ async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, otherList, studentRows, repeated) {
+   const wb = new ExcelJS.Workbook();
+   const on = !!(repeated && repeated.summary);
++  const listCols = paListCols(repeated && repeated.earlierLabel);
+   addSummarySheets(wb, summaries, mauDist);
+   if (on) {
+-    addTitledTableSheet(wb, 'Repeated_Summary', 'Repeated / New / Pending — vs last week', repeated.summary);
+-    addRowSheet(wb, 'Repeated_Students', PA_LIST_COLS, studentRows.filter(r => r['MAU Status'] === 'Repeated'));
++    addTitledTableSheet(wb, 'Repeated_Summary', repeated.title || 'Repeated / New / Pending — vs last week', repeated.summary);
++    addRowSheet(wb, 'Repeated_Students', listCols, studentRows.filter(r => r['MAU Status'] === 'Repeated'));
+     // The Pending list (never-MAU) can be ~190k rows — too large to build as a
+     // second big sheet in a browser without running out of memory. It ships as a
+     // companion CSV instead; Raw_Data below carries the MAU Status column so
+     // pending students are still filterable right here in the workbook.
+   }
+-  if (studentRows && studentRows.length) addRowSheet(wb, 'Raw_Data', on ? PA_LIST_COLS : PA_RAW_COLS, studentRows);
++  if (studentRows && studentRows.length) addRowSheet(wb, 'Raw_Data', on ? listCols : PA_RAW_COLS, studentRows);
+   addMappingSheet(wb, createdList, otherList);
+   const buf = await wb.xlsx.writeBuffer();
+   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+@@ -1098,16 +1128,12 @@ async function loadRosterTSV(status, templateArrayBuffer) {
+ }
+ 
+ /**
+- * @param files  content-log CSV/XLSX files (same input as the email extractor)
+- * @param templateArrayBuffer  optional pre-loaded template bytes (used by tests);
+- *        when omitted, the roster is loaded (and cached) from ADOBE_TEMPLATE_URL.
++ * Step 1 of Feature 3, reusable by Tab 4: turn content-log files into the
++ * activity sets the report builder needs.
++ * @returns {{createdList:string[], otherList:string[], createdSet:Set<string>,
++ *            otherSet:Set<string>, firstMau:Map<string,number>, fileStats:Array}}
+  */
+-async function processAndPrepareAdobe(files, onProgress, onStatus, templateArrayBuffer, opts = {}) {
+-  const status = onStatus || (() => {});
+-  const progress = onProgress || (() => {});
+-
+-  // 1. Split content-log emails: Created → MAU (Mapping A), Other → Login (Mapping C)
+-  status('Extracting emails from content logs…'); progress(6);
++async function collectActivityFromLogs(files) {
+   const emailRes = await extractEmails(files, () => {}, () => {});
+   const validFiles = emailRes.fileStats.filter(s => !s.error).length;
+   if (!validFiles) {
+@@ -1116,9 +1142,37 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
+   }
+   const createdList = emailRes.createdList;   // → Mapping col A → 'Completed MAU?'
+   const otherList   = emailRes.otherList;     // → Mapping col C → 'Logged In?'
+-  const createdSet  = new Set(createdList.map(e => e.trim().toLowerCase()));
+-  const otherSet    = new Set(otherList.map(e => e.trim().toLowerCase()));
+-  const firstMau    = emailRes.firstMau || new Map();   // email → earliest Created ts
++  return {
++    createdList, otherList,
++    createdSet: new Set(createdList.map(e => e.trim().toLowerCase())),
++    otherSet:   new Set(otherList.map(e => e.trim().toLowerCase())),
++    firstMau:   emailRes.firstMau || new Map(),   // email → earliest Created ts
++    fileStats:  emailRes.fileStats
++  };
++}
++
++/**
++ * Steps 2-4 of Feature 3, reusable by Tab 4: mark every roster student from an
++ * `activity` object, optionally classify against an earlier window, then build
++ * the summaries and the output workbook.
++ *
++ * @param activity  {createdList, otherList, createdSet, otherSet, firstMau, fileStats?}
++ * @param opts      lastWeekMAU (Set) | lastWeekFile (File)  — Tab 3 week-over-week
++ *                  earlierMauMap (Map email→ts)             — Tab 4 look-back window
++ *                  earlierLabel  (string)  header for the "was MAU earlier" column
++ *                  repeatedTitle (string)  title of the Repeated_Summary sheet
++ *                  mode          'tab3' (default) | 'range'
++ * @param templateArrayBuffer  optional pre-loaded template bytes (tests); when
++ *        omitted the roster is loaded (and cached) from ADOBE_TEMPLATE_URL.
++ */
++async function buildReportFromActivity(activity, opts, onStatus, onProgress, templateArrayBuffer) {
++  opts = opts || {};
++  const status = onStatus || (() => {});
++  const progress = onProgress || (() => {});
++  const rangeMode = opts.mode === 'range';
++  const earlierKey = opts.earlierLabel || 'Was MAU Last Week';
++  const { createdList, otherList, createdSet, otherSet } = activity;
++  const firstMau = activity.firstMau || new Map();
+ 
+   // 2. Load the roster (cached across runs; downloads + parses only when the
+   //    template version changes).
+@@ -1148,39 +1202,46 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
+ 
+   // 3b. Optional week-over-week analysis: classify each student vs last week's MAU.
+   let lastWeekMAU = opts.lastWeekMAU || null;
++  if (!lastWeekMAU && opts.earlierMauMap) lastWeekMAU = new Set(opts.earlierMauMap.keys());   // Tab 4 look-back
+   if (!lastWeekMAU && opts.lastWeekFile) {
+     status("Reading last week's MAU report…");
+     lastWeekMAU = await readLastWeekMAU(opts.lastWeekFile);
+   }
+-  const withRepeated = !!(lastWeekMAU && lastWeekMAU.size);
++  // A Tab 4 look-back (earlierMauMap) always switches Repeated on, even if the
++  // look-back window turned out to have no MAU students.
++  const withRepeated = !!opts.earlierMauMap || !!(lastWeekMAU && lastWeekMAU.size);
+   let repStats = null;
+   if (withRepeated) {
+-    status('Comparing to last week (repeated / new / pending)…'); progress(66);
+-    let repeated = 0, newMau = 0, pending = 0;
++    status(rangeMode ? 'Comparing with the look-back period (repeated / new / pending)…' : 'Comparing to last week (repeated / new / pending)…'); progress(66);
++    let repeated = 0, newMau = 0, pending = 0, completedEarlier = 0;
+     for (const r of rosterRows) {
+       const em = String(r[TEMPLATE_EMAIL_COL] == null ? '' : r[TEMPLATE_EMAIL_COL]).trim().toLowerCase();
+       const thisMau = r['Completed MAU?'] === 'Yes';
+       const wasMau = em !== '' && lastWeekMAU.has(em);
+       r['Was MAU Last Week'] = wasMau ? 'Yes' : 'No';
++      if (earlierKey !== 'Was MAU Last Week') r[earlierKey] = r['Was MAU Last Week'];
+       if (thisMau && wasMau) { r['MAU Status'] = 'Repeated'; r._repeated = 1; r._newMau = 0; r._pending = 0; repeated++; }
+       else if (thisMau && !wasMau) { r['MAU Status'] = 'New'; r._repeated = 0; r._newMau = 1; r._pending = 0; newMau++; }
+       else if (!thisMau && !wasMau) { r['MAU Status'] = 'Pending'; r._repeated = 0; r._newMau = 0; r._pending = 1; pending++; }
+-      else { r['MAU Status'] = 'Completed earlier'; r._repeated = 0; r._newMau = 0; r._pending = 0; }  // MAU last week only
++      else { r['MAU Status'] = 'Completed earlier'; r._repeated = 0; r._newMau = 0; r._pending = 0; completedEarlier++; }  // MAU last week only
+     }
+     repStats = { repeated, newMau, pending, lastWeekMauCount: lastWeekMAU.size };
++    if (rangeMode) repStats.completedEarlier = completedEarlier;
+   }
+ 
+   // 4. Aggregate (reuses the Adobe-prep logic) and build the output workbook.
+   status('Normalizing and computing summaries…'); progress(72);
+   const normRows = normalizeGroupingColumns(rosterRows);
+-  const summaries = computeSummaries(normRows, withRepeated);
+-  const mauDist = computeSchoolDistribution(normRows);
++  let summaries = computeSummaries(normRows, withRepeated);
++  const rangeRepeated = rangeMode && withRepeated;
++  if (rangeRepeated) summaries = relabelRangeSummaries(summaries);
++  const mauDist = computeSchoolDistribution(normRows, rangeRepeated);
+   const repeatedSummary = withRepeated ? computeRepeatedSummary(normRows) : null;
+ 
+   status('Building final Excel file (incl. student-level Raw_Data)…'); progress(90);
+   const blob = await buildProcessedAdobeWorkbook(
+     summaries, mauDist, createdList, otherList, normRows,
+-    repeatedSummary ? { summary: repeatedSummary } : null
++    repeatedSummary ? { summary: repeatedSummary, earlierLabel: earlierKey, title: opts.repeatedTitle } : null
+   );
+ 
+   // The Pending list (never-MAU) is potentially huge, so it ships as a companion
+@@ -1188,7 +1249,7 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
+   let pendingCsvBlob = null, pendingCsvName = null;
+   if (withRepeated) {
+     const pendRows = normRows.filter(r => r['MAU Status'] === 'Pending');
+-    pendingCsvBlob = rowsToCsvBlob(PA_LIST_COLS, pendRows);
++    pendingCsvBlob = rowsToCsvBlob(paListCols(earlierKey), pendRows);
+     pendingCsvName = `Pending_Students_${dateStamp()}.csv`;
+   }
+   progress(100);
+@@ -1208,10 +1269,27 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
+     pendingCsvName,
+     summaries,
+     mauDist,
+-    emailFileStats: emailRes.fileStats
++    emailFileStats: activity.fileStats || []
+   };
+ }
+ 
++/**
++ * @param files  content-log CSV/XLSX files (same input as the email extractor)
++ * @param templateArrayBuffer  optional pre-loaded template bytes (used by tests);
++ *        when omitted, the roster is loaded (and cached) from ADOBE_TEMPLATE_URL.
++ */
++async function processAndPrepareAdobe(files, onProgress, onStatus, templateArrayBuffer, opts = {}) {
++  const status = onStatus || (() => {});
++  const progress = onProgress || (() => {});
++
++  // 1. Split content-log emails: Created → MAU (Mapping A), Other → Login (Mapping C)
++  status('Extracting emails from content logs…'); progress(6);
++  const activity = await collectActivityFromLogs(files);
++
++  // 2-4. Roster, marking, optional week-over-week, summaries, workbook.
++  return buildReportFromActivity(activity, opts, status, progress, templateArrayBuffer);
++}
++
+ function dateStamp() {
+   const d = new Date();
+   const dd = String(d.getDate()).padStart(2, '0');
+@@ -1231,5 +1309,9 @@ window.Processing = {
+   emailDefaultFilename,
+   saveFolderPickerSupported,
+   processAndPrepareAdobe,
++  collectActivityFromLogs,
++  buildReportFromActivity,
++  parseLogTimestamp,
++  IST_OFFSET_MS,
+   fetchAdobeTemplate
+ };
+diff --git a/js/store.js b/js/store.js
+new file mode 100644
+index 0000000..cc38781
+--- /dev/null
++++ b/js/store.js
+@@ -0,0 +1,677 @@
++/* ============================================================
++ * store.js — Daily activity store + date-range MAU report (Tab 4)
++ *
++ * The store is a plain folder (a Zoho WorkDrive folder synced to the laptop by
++ * WorkDrive TrueSync) that the browser reads/writes through the File System
++ * Access API. Layout:
++ *
++ *   manifest.json            index of stored days (rebuilt from daily/ if lost)
++ *   daily/YYYY-MM-DD.csv     one file per IST day:  email,first_mau_ts,first_login_ts
++ *   archive/YYYY-MM/...      created by an admin "Reset store"
++ *
++ * Only EARLIEST timestamps are kept per student per day, so adding the same raw
++ * file twice (or overlapping files) can never double-count.
++ *
++ * All folder I/O goes through a small adapter (readText / writeText / exists /
++ * dirExists / list / remove / probeWrite) so the same code runs in the browser
++ * (FileSystemDirectoryHandle) and in Node tests (fs).
++ *
++ * Depends on (loaded earlier): Papa (PapaParse) and window.Processing
++ * (parseLogTimestamp, buildReportFromActivity).
++ * No credentials live here — the Zoho account is only used by TrueSync itself.
++ * ============================================================ */
++(function () {
++  'use strict';
++
++  /* ---------- constants ---------- */
++  // SHA-256 of the lower-cased admin passwords (the plain values are NOT in the code).
++  const ADMIN_HASHES = [
++    'c7bcbc30c7637ba219cf01ac67038bb82dd7dd02d046f3ff5a49dbdb02f8fb09',
++    '33abca26a552dc051412d73810df2e91fb8a58e09a53e56549b424dd7d660de4'
++  ];
++  const MANIFEST = 'manifest.json';
++  const DAILY_DIR = 'daily';
++  const ARCHIVE_DIR = 'archive';
++  const IST_OFFSET_MS = 330 * 60000;            // UTC+5:30
++  const LOCK_MS = 30000, MAX_TRIES = 3;
++  const MAU_ACTIONS = new Set(['Created', 'Created public link']);
++  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
++  const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
++  const READ_ONLY_MSG = 'This folder is read-only for you (WorkDrive Viewer). Ask an admin with Editor access to do this.';
++
++  class StoreError extends Error {
++    constructor(code, message) { super(message); this.name = 'StoreError'; this.code = code; }
++  }
++
++  /* ---------- date helpers (all day keys are IST 'YYYY-MM-DD') ---------- */
++  function dayKeyFromTs(ts) { return new Date(ts + IST_OFFSET_MS).toISOString().slice(0, 10); }
++  function todayKey() { return dayKeyFromTs(Store._now()); }
++  function isDayKey(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s + 'T00:00:00Z')); }
++  function addDays(key, n) { const d = new Date(key + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
++  /** Inclusive list of day keys (capped so a typo like year 0001 can't hang the page). */
++  function dayRange(from, to) {
++    const out = [];
++    for (let k = from, n = 0; k <= to && n < 4000; k = addDays(k, 1), n++) out.push(k);
++    return out;
++  }
++  function fmtDMY(key) { const [y, m, d] = key.split('-'); return `${d}-${m}-${y}`; }
++  function fmtShort(key) { const [, m, d] = key.split('-'); return `${+d} ${MON[+m - 1]}`; }
++  /** ['2026-08-14','2026-08-15','2026-08-24',…] → "14–15 Aug, 24 Aug" (max 8 runs shown). */
++  function compressDays(keys) {
++    const ks = [...new Set(keys)].sort();
++    const runs = [];
++    for (const k of ks) {
++      const last = runs[runs.length - 1];
++      if (last && addDays(last[1], 1) === k) last[1] = k; else runs.push([k, k]);
++    }
++    const txt = runs.map(([a, b]) => {
++      if (a === b) return fmtShort(a);
++      return a.slice(0, 7) === b.slice(0, 7) ? `${+a.slice(8)}–${fmtShort(b)}` : `${fmtShort(a)}–${fmtShort(b)}`;
++    });
++    return txt.length > 8 ? txt.slice(0, 8).join(', ') + ` (+${txt.length - 8} more)` : txt.join(', ');
++  }
++  function monthLabel(ym) { const [y, m] = ym.split('-'); return `${MONTHS_LONG[+m - 1]} ${y}`; }
++  function fmtIst(iso) {
++    const t = Date.parse(iso);
++    if (isNaN(t)) return '';
++    const d = new Date(t + IST_OFFSET_MS), p = n => String(n).padStart(2, '0');
++    return `${p(d.getUTCDate())}-${p(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
++  }
++
++  /* ---------- day-file (de)serialisation ---------- */
++  const DAY_HEADER = 'email,first_mau_ts,first_login_ts';
++  /** Map(email → {mau, login}) → CSV text (sorted by email, so output is deterministic). */
++  function serializeDay(map) {
++    const lines = [DAY_HEADER];
++    for (const e of [...map.keys()].sort()) {
++      const v = map.get(e);
++      lines.push(e + ',' + (v.mau == null ? '' : v.mau) + ',' + (v.login == null ? '' : v.login));
++    }
++    return lines.join('\n') + '\n';
++  }
++  function parseDay(text) {
++    const map = new Map();
++    if (!text) return map;
++    const lines = text.split('\n');
++    for (let i = 1; i < lines.length; i++) {
++      const ln = lines[i].trim();
++      if (!ln) continue;
++      const p = ln.split(',');
++      if (!p[0]) continue;
++      map.set(p[0], { mau: p[1] ? +p[1] : null, login: p[2] ? +p[2] : null });
++    }
++    return map;
++  }
++  function minTs(a, b) { return a == null ? b : (b == null ? a : Math.min(a, b)); }
++  function mergeEntry(map, email, mau, login) {
++    const cur = map.get(email);
++    if (!cur) { map.set(email, { mau: mau == null ? null : mau, login: login == null ? null : login }); return; }
++    cur.mau = minTs(cur.mau, mau);
++    cur.login = minTs(cur.login, login);
++  }
++  function countMau(map) { let n = 0; for (const v of map.values()) if (v.mau != null) n++; return n; }
++
++  /* ---------- adapter (browser) ---------- */
++  function splitPath(p) { const parts = p.split('/'); return { dirs: parts.slice(0, -1), name: parts[parts.length - 1] }; }
++  async function walkDir(root, dirs, create) {
++    let d = root;
++    for (const part of dirs) d = await d.getDirectoryHandle(part, { create: !!create });
++    return d;
++  }
++  const isNotFound = e => e && (e.name === 'NotFoundError' || e.name === 'TypeMismatchError');
++
++  function browserAdapter(root) {
++    return {
++      async readText(path) {
++        const { dirs, name } = splitPath(path);
++        try {
++          const dir = await walkDir(root, dirs, false);
++          const fh = await dir.getFileHandle(name);
++          return await (await fh.getFile()).text();
++        } catch (e) { if (isNotFound(e)) return null; throw e; }
++      },
++      async writeText(path, text) {
++        const { dirs, name } = splitPath(path);
++        const dir = await walkDir(root, dirs, true);
++        const fh = await dir.getFileHandle(name, { create: true });
++        const w = await fh.createWritable();
++        await w.write(text);
++        await w.close();
++      },
++      async exists(path) { return (await this.readText(path)) !== null; },
++      async dirExists(path) {
++        try { await walkDir(root, path.split('/'), false); return true; } catch (e) { if (isNotFound(e)) return false; throw e; }
++      },
++      async list(dirPath) {
++        try {
++          const dir = await walkDir(root, dirPath ? dirPath.split('/') : [], false);
++          const out = [];
++          for await (const [name, h] of dir.entries()) if (h.kind === 'file') out.push(name);
++          return out;
++        } catch (e) { if (isNotFound(e)) return []; throw e; }
++      },
++      async remove(path) {
++        const { dirs, name } = splitPath(path);
++        const dir = await walkDir(root, dirs, false);
++        await dir.removeEntry(name);
++      },
++      /** Throws if this user can't write (e.g. WorkDrive Viewer). Creates an empty manifest if absent. */
++      async probeWrite() {
++        const fh = await root.getFileHandle(MANIFEST, { create: true });
++        const w = await fh.createWritable({ keepExistingData: true });
++        await w.abort();                                   // permission check only — no change
++        if ((await fh.getFile()).size === 0) {
++          const w2 = await fh.createWritable();
++          await w2.write(JSON.stringify({ version: 1, days: {} }));
++          await w2.close();
++        }
++      }
++    };
++  }
++
++  /* ---------- connection state ---------- */
++  let _adapter = null, _handle = null, _pendingHandle = null, _folderName = '';
++  let _admin = false, _fails = 0, _lockUntil = 0;
++
++  function setFolder(handle) {
++    _handle = handle; _pendingHandle = null; _folderName = handle.name || '';
++    _adapter = browserAdapter(handle);
++  }
++  function requireAdapter() {
++    if (!_adapter) throw new StoreError('no-folder', 'Choose the store folder first.');
++    return _adapter;
++  }
++  function requireAdmin() {
++    if (!_admin) throw new StoreError('not-admin', 'Admin login required.');
++  }
++  function isWriteDenied(e) {
++    const n = e && e.name, m = String((e && (e.message || e.code)) || '');
++    return n === 'NotAllowedError' || n === 'NoModificationAllowedError' || n === 'SecurityError' ||
++      /read-only|EACCES|EPERM|EROFS|not allowed/i.test(m);
++  }
++  /** Run a write operation; turn "not allowed" failures into the friendly Viewer message. */
++  async function guardedWrite(fn) {
++    try { return await fn(); }
++    catch (e) { if (e instanceof StoreError) throw e; if (isWriteDenied(e)) throw new StoreError('read-only', READ_ONLY_MSG); throw e; }
++  }
++
++  /* ---------- IndexedDB: remember the chosen folder ---------- */
++  function idb() {
++    return new Promise((resolve, reject) => {
++      if (typeof indexedDB === 'undefined') { reject(new Error('no indexedDB')); return; }
++      const req = indexedDB.open('cla_store', 1);
++      req.onupgradeneeded = () => req.result.createObjectStore('handles');
++      req.onsuccess = () => resolve(req.result);
++      req.onerror = () => reject(req.error);
++    });
++  }
++  async function idbGetHandle() {
++    try {
++      const db = await idb();
++      return await new Promise(res => {
++        const r = db.transaction('handles', 'readonly').objectStore('handles').get('storeDir');
++        r.onsuccess = () => res(r.result || null); r.onerror = () => res(null);
++      });
++    } catch (_) { return null; }
++  }
++  async function idbPutHandle(h) {
++    try {
++      const db = await idb();
++      await new Promise(res => {
++        const r = db.transaction('handles', 'readwrite').objectStore('handles').put(h, 'storeDir');
++        r.onsuccess = () => res(); r.onerror = () => res();
++      });
++    } catch (_) { /* remembering the folder is best-effort */ }
++  }
++
++  /* ---------- folder selection / permission ---------- */
++  function isSupported() { return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'; }
++
++  /** On page load: reconnect to the remembered folder. state: none | needs-permission | ready | unsupported */
++  async function restoreFolder() {
++    if (_adapter) return { state: 'ready', name: _folderName };
++    if (!isSupported()) return { state: 'unsupported' };
++    const h = await idbGetHandle();
++    if (!h) return { state: 'none' };
++    try {
++      if ((await h.queryPermission({ mode: 'read' })) === 'granted') { setFolder(h); return { state: 'ready', name: h.name }; }
++    } catch (_) { return { state: 'none' }; }
++    _pendingHandle = h;
++    return { state: 'needs-permission', name: h.name };
++  }
++  /** Must be called from a click (user gesture): the one-click "Reconnect store". */
++  async function reconnect() {
++    if (!_pendingHandle) return restoreFolder();
++    const perm = await _pendingHandle.requestPermission({ mode: 'read' });
++    if (perm !== 'granted') return { state: 'needs-permission', name: _pendingHandle.name };
++    setFolder(_pendingHandle);
++    return { state: 'ready', name: _folderName };
++  }
++  async function pickFolder() {
++    if (!isSupported()) throw new StoreError('unsupported', 'This browser cannot open folders. Use Chrome or Edge on a desktop.');
++    let h;
++    try { h = await window.showDirectoryPicker({ id: 'cla-store', mode: 'read' }); }
++    catch (e) { if (e && e.name === 'AbortError') return { state: 'cancelled' }; throw e; }
++    await idbPutHandle(h);
++    setFolder(h);
++    return { state: 'ready', name: h.name };
++  }
++  /** Admin actions call this first, straight from the click handler (needs user activation). */
++  async function ensureWritable() {
++    requireAdapter();
++    if (_handle) {
++      let perm = 'prompt';
++      try { perm = await _handle.queryPermission({ mode: 'readwrite' }); } catch (_) { /* fall through */ }
++      if (perm !== 'granted') {
++        try { perm = await _handle.requestPermission({ mode: 'readwrite' }); } catch (_) { perm = 'denied'; }
++        if (perm !== 'granted') throw new StoreError('write-denied', 'Write access to the store folder was not granted.');
++      }
++    }
++    await guardedWrite(() => _adapter.probeWrite());
++    return true;
++  }
++  /** For tests / embedding: use any adapter object instead of a browser folder. */
++  function useAdapter(adapter, name) { _adapter = adapter; _handle = null; _folderName = name || 'test-store'; }
++  function isConnected() { return !!_adapter; }
++  function folderName() { return _folderName; }
++
++  /* ---------- admin ---------- */
++  async function sha256Hex(str) {
++    const c = globalThis.crypto;
++    if (!c || !c.subtle) throw new StoreError('no-crypto', 'Admin login needs a secure page (https or localhost).');
++    const buf = await c.subtle.digest('SHA-256', new TextEncoder().encode(str));
++    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
++  }
++  async function verifyAdminPassword(input) {
++    return ADMIN_HASHES.includes(await sha256Hex(String(input == null ? '' : input).trim().toLowerCase()));
++  }
++  /** Check the password with a 3-tries / 30-second lockout. Admin mode lasts until exitAdmin() or page close. */
++  async function adminLogin(input) {
++    const now = Store._now();
++    if (now < _lockUntil) {
++      const s = Math.ceil((_lockUntil - now) / 1000);
++      return { ok: false, locked: true, secondsLeft: s, message: `Too many wrong tries. Try again in ${s}s.` };
++    }
++    if (await verifyAdminPassword(input)) { _admin = true; _fails = 0; return { ok: true }; }
++    if (++_fails >= MAX_TRIES) {
++      _fails = 0; _lockUntil = now + LOCK_MS;
++      return { ok: false, locked: true, secondsLeft: LOCK_MS / 1000, message: 'Too many wrong tries. Locked for 30 seconds.' };
++    }
++    return { ok: false, message: 'Incorrect admin password.' };
++  }
++  function exitAdmin() { _admin = false; }
++  function isAdmin() { return _admin; }
++
++  /* ---------- manifest + summary ---------- */
++  const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.csv$/;
++
++  /** Read manifest.json and reconcile it with what is really in daily/ (TrueSync can lag or conflict). */
++  async function loadManifest() {
++    const a = requireAdapter();
++    let m = null;
++    const txt = await a.readText(MANIFEST);
++    if (txt && txt.trim()) { try { m = JSON.parse(txt); } catch (_) { m = null; } }
++    if (!m || typeof m !== 'object' || !m.days || typeof m.days !== 'object') m = { version: 1, days: {} };
++    const present = new Set();
++    for (const n of await a.list(DAILY_DIR)) { const mm = DAY_FILE_RE.exec(n); if (mm) present.add(mm[1]); }
++    for (const k of Object.keys(m.days)) if (!present.has(k)) delete m.days[k];
++    for (const k of present) {
++      if (m.days[k]) continue;
++      const mp = parseDay(await a.readText(`${DAILY_DIR}/${k}.csv`));      // recovered from the file itself
++      m.days[k] = { students: mp.size, mau: countMau(mp), rawRows: 0, files: [], minTs: null, maxTs: null, updatedAt: null, recovered: true };
++    }
++    return m;
++  }
++
++  function summarize(manifest) {
++    const keys = Object.keys((manifest && manifest.days) || {}).sort();
++    const base = { lastAddedAt: (manifest && manifest.lastAddedAt) || null, lastAddBatch: (manifest && manifest.lastAddBatch) || [] };
++    if (!keys.length) return { empty: true, firstDay: null, lastDay: null, dayCount: 0, missingDays: [], months: [], storedDays: [], studentDayRows: 0, ...base };
++    const first = keys[0], last = keys[keys.length - 1];
++    return {
++      empty: false, firstDay: first, lastDay: last, dayCount: keys.length,
++      missingDays: dayRange(first, last).filter(k => !manifest.days[k]),
++      months: [...new Set(keys.map(k => k.slice(0, 7)))],
++      storedDays: keys,
++      studentDayRows: keys.reduce((n, k) => n + (manifest.days[k].students || 0), 0),
++      ...base
++    };
++  }
++  async function getSummary() {
++    const manifest = await loadManifest();
++    return { manifest, summary: summarize(manifest) };
++  }
++  function formatLabel(s) {
++    if (!s || s.empty) return 'Store is empty — an admin needs to add files.';
++    const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
++    let t = `Store has data from ${fmtDMY(s.firstDay)} to ${fmtDMY(s.lastDay)} · ${pl(s.dayCount, 'day')}`;
++    if (s.lastAddedAt) {
++      t += ` · last added ${fmtIst(s.lastAddedAt)}`;
++      if (s.lastAddBatch && s.lastAddBatch.length) t += ` (${pl(s.lastAddBatch.length, 'file')})`;
++    }
++    if (s.missingDays.length) t += ` · ${pl(s.missingDays.length, 'day')} missing (${compressDays(s.missingDays)})`;
++    return t;
++  }
++  /** Month grids for the coverage strip: [{month:'2026-08', label, days:[{day,stored,students,mau}]}]. */
++  function coverageGrid(manifest) {
++    const s = summarize(manifest);
++    if (s.empty) return [];
++    const out = [];
++    let [y, m] = s.firstDay.split('-').map(Number);
++    const [ly, lm] = s.lastDay.split('-').map(Number);
++    while (y < ly || (y === ly && m <= lm)) {
++      const ym = `${y}-${String(m).padStart(2, '0')}`;
++      const n = new Date(Date.UTC(y, m, 0)).getUTCDate();
++      const days = [];
++      for (let d = 1; d <= n; d++) {
++        const k = `${ym}-${String(d).padStart(2, '0')}`;
++        const e = manifest.days[k];
++        days.push({ day: k, stored: !!e, students: e ? e.students : 0, mau: e ? e.mau : 0, inRange: k >= s.firstDay && k <= s.lastDay });
++      }
++      out.push({ month: ym, label: monthLabel(ym), days });
++      if (++m > 12) { m = 1; y++; }
++    }
++    return out;
++  }
++
++  /* ---------- ingest (admin) ---------- */
++  function isBlankVal(v) {
++    if (v === null || v === undefined) return true;
++    const s = String(v).trim().toLowerCase();
++    return s === '' || s === 'nan' || s === 'n/a';
++  }
++  function parseOne(file, onRows, onPct) {
++    return new Promise((resolve, reject) => {
++      const input = file.nodeStream ? file.nodeStream() : file;
++      Papa.parse(input, {
++        header: true, skipEmptyLines: 'greedy', dynamicTyping: false,
++        transformHeader: h => h.trim(),
++        chunk: res => {
++          onRows(res.data);
++          if (onPct && file.size && res.meta && res.meta.cursor) onPct(Math.min(99, Math.round(res.meta.cursor * 100 / file.size)));
++        },
++        complete: () => resolve(),
++        error: e => reject(e instanceof Error ? e : new Error(String(e && e.message || e)))
++      });
++    });
++  }
++
++  /**
++   * Stream every file and collect per-IST-day activity in memory (nothing is written).
++   * @returns {{days:Map<string,Map<string,{mau,login}>>, perFile:Array, perDay:Map, fileNames:string[]}}
++   */
++  async function parseLogFiles(files, onProgress) {
++    const P = (typeof window !== 'undefined' && window.Processing) || {};
++    if (typeof P.parseLogTimestamp !== 'function') throw new Error('processing.js must be loaded before store.js');
++    const days = new Map();           // day → Map(email → {mau, login})
++    const perDay = new Map();         // day → {rowsByFile: Map(file → n), minTs, maxTs}
++    const perFile = [];
++    const list = Array.from(files);
++    for (let i = 0; i < list.length; i++) {
++      const file = list[i];
++      const st = { name: file.name, rows: 0, kept: 0, noEmail: 0, system: 0, badDate: 0, days: new Set() };
++      const say = pct => onProgress && onProgress({ fileIndex: i, fileCount: list.length, name: file.name, pct });
++      say(0);
++      await parseOne(file, rows => {
++        for (const row of rows) {
++          st.rows++;
++          const email = String(row['User Email'] == null ? '' : row['User Email']).trim().toLowerCase();
++          const action = String(row['Action'] == null ? '' : row['Action']).trim();
++          if (isBlankVal(email) || isBlankVal(action)) { st.noEmail++; continue; }
++          const at = email.indexOf('@');
++          const domain = email.slice(at + 1);
++          // D6: Adobe system accounts and 'guest email' placeholders never match the roster.
++          if (at < 1 || /[\s,"]/.test(email) || domain === 'adobe.com' || domain.endsWith('.adobe.com')) { st.system++; continue; }
++          const ts = P.parseLogTimestamp(row['Date']);
++          if (ts === null) { st.badDate++; continue; }
++          const day = dayKeyFromTs(ts);
++          let dm = days.get(day);
++          if (!dm) { dm = new Map(); days.set(day, dm); perDay.set(day, { rowsByFile: new Map(), minTs: null, maxTs: null }); }
++          const pd = perDay.get(day);
++          pd.rowsByFile.set(file.name, (pd.rowsByFile.get(file.name) || 0) + 1);
++          pd.minTs = minTs(pd.minTs, ts); pd.maxTs = pd.maxTs == null ? ts : Math.max(pd.maxTs, ts);
++          if (MAU_ACTIONS.has(action)) mergeEntry(dm, email, ts, null); else mergeEntry(dm, email, null, ts);
++          st.kept++; st.days.add(day);
++        }
++      }, say);
++      say(100);
++      perFile.push({ ...st, days: [...st.days].sort() });
++    }
++    return { days, perDay, perFile, fileNames: list.map(f => f.name) };
++  }
++
++  /** Warn when a batch has rows from a month the store doesn't hold yet. */
++  function checkMonthGuard(parsed, manifest) {
++    const storeMonths = new Set(Object.keys(manifest.days).map(k => k.slice(0, 7)));
++    if (!storeMonths.size) return { warn: false };
++    const batchDays = [...parsed.days.keys()].sort();
++    const newMonths = [...new Set(batchDays.map(k => k.slice(0, 7)))].filter(m => !storeMonths.has(m));
++    if (!newMonths.length) return { warn: false };
++    const newDays = batchDays.filter(k => newMonths.includes(k.slice(0, 7)));
++    const sm = [...storeMonths].sort();
++    return {
++      warn: true, storeMonths: sm, newMonths, newDays,
++      message: `Store holds ${sm.map(monthLabel).join(' + ')} data; these files have ${newMonths.map(monthLabel).join(' + ')} rows (${compressDays(newDays)}). ` +
++        'Ask an admin to reset first, or Continue to mix months.'
++    };
++  }
++
++  /** Merge parsed days into the store files + manifest (idempotent: earliest timestamps win). */
++  async function commitParsed(parsed, opts) {
++    requireAdmin();
++    const a = requireAdapter();
++    const manifest = await loadManifest();
++    const guard = checkMonthGuard(parsed, manifest);
++    if (guard.warn && !(opts && opts.confirmMixedMonths)) return { needsConfirm: true, guard };
++    await guardedWrite(() => a.probeWrite());
++
++    const nowIso = new Date(Store._now()).toISOString();
++    const dup = new Set();
++    const results = [];
++    for (const day of [...parsed.days.keys()].sort()) {
++      const merged = parseDay(await a.readText(`${DAILY_DIR}/${day}.csv`));
++      for (const [email, v] of parsed.days.get(day)) mergeEntry(merged, email, v.mau, v.login);
++      await guardedWrite(() => a.writeText(`${DAILY_DIR}/${day}.csv`, serializeDay(merged)));
++
++      const pd = parsed.perDay.get(day);
++      const e = manifest.days[day] || { students: 0, mau: 0, rawRows: 0, files: [], minTs: null, maxTs: null };
++      for (const [fname, n] of pd.rowsByFile) {
++        if (e.files.includes(fname)) dup.add(fname); else { e.files.push(fname); e.rawRows = (e.rawRows || 0) + n; }
++      }
++      e.students = merged.size; e.mau = countMau(merged);
++      e.minTs = minTs(e.minTs, pd.minTs); e.maxTs = e.maxTs == null ? pd.maxTs : Math.max(e.maxTs, pd.maxTs);
++      e.updatedAt = nowIso; delete e.recovered;
++      manifest.days[day] = e;
++      results.push({ day, students: e.students, mau: e.mau, files: pd.rowsByFile.size, rows: [...pd.rowsByFile.values()].reduce((x, y) => x + y, 0) });
++    }
++    manifest.version = 1;
++    manifest.lastAddedAt = nowIso;
++    manifest.lastAddBatch = parsed.fileNames.slice();
++    await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify(manifest, null, 1)));
++    return { ok: true, days: results, duplicateFiles: [...dup], perFile: parsed.perFile, guard };
++  }
++
++  /**
++   * Admin: add one or many raw Content-Log CSVs. If the batch has rows from a different
++   * month than the store, resolves {needsConfirm, guard, commit()} — call commit() to proceed.
++   */
++  async function ingestLogFiles(files, onProgress, opts) {
++    requireAdmin();
++    requireAdapter();
++    const parsed = await parseLogFiles(files, onProgress);
++    if (!parsed.days.size) throw new StoreError('no-rows', 'No usable rows found (need Action, Date and User Email columns).');
++    const res = await commitParsed(parsed, opts);
++    if (res.needsConfirm) return { ...res, parsed, commit: () => commitParsed(parsed, { confirmMixedMonths: true }) };
++    return res;
++  }
++
++  /* ---------- reset (admin) ---------- */
++  async function resetStore() {
++    requireAdmin();
++    const a = requireAdapter();
++    await guardedWrite(() => a.probeWrite());
++    const manifest = await loadManifest();
++    const keys = Object.keys(manifest.days).sort();
++    if (!keys.length) throw new StoreError('empty', 'The store is already empty — nothing to reset.');
++    let folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}`, n = 2;
++    while (await a.dirExists(folder)) folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}_${n++}`;
++    // 1) copy everything to the archive, 2) verify, 3) only then remove the originals.
++    for (const k of keys) {
++      const t = await a.readText(`${DAILY_DIR}/${k}.csv`);
++      if (t != null) await guardedWrite(() => a.writeText(`${folder}/${DAILY_DIR}/${k}.csv`, t));
++    }
++    await guardedWrite(() => a.writeText(`${folder}/${MANIFEST}`, JSON.stringify(manifest, null, 1)));
++    for (const k of keys) {
++      if ((await a.exists(`${DAILY_DIR}/${k}.csv`)) && !(await a.exists(`${folder}/${DAILY_DIR}/${k}.csv`)))
++        throw new StoreError('archive-failed', `Could not archive ${k}; nothing was deleted.`);
++    }
++    for (const k of keys) await guardedWrite(() => a.remove(`${DAILY_DIR}/${k}.csv`));
++    await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify({ version: 1, days: {}, resetAt: new Date(Store._now()).toISOString(), archivedTo: folder }, null, 1)));
++    return { archivedTo: folder, dayCount: keys.length, firstDay: keys[0], lastDay: keys[keys.length - 1], studentDayRows: summarize(manifest).studentDayRows };
++  }
++
++  /* ---------- read a range ---------- */
++  /** Earliest MAU / login timestamp per student across the stored days in [fromKey, toKey]. */
++  async function loadActivityForRange(fromKey, toKey, manifestOpt) {
++    const a = requireAdapter();
++    const manifest = manifestOpt || await loadManifest();
++    const firstMau = new Map(), firstLogin = new Map(), missingDays = [], storedDays = [];
++    for (const k of dayRange(fromKey, toKey)) {
++      if (!manifest.days[k]) { missingDays.push(k); continue; }
++      let txt;
++      try { txt = await a.readText(`${DAILY_DIR}/${k}.csv`); }
++      catch (e) { throw new StoreError('read-failed', `Could not read ${k}.csv (${e.message || e.name}). If you use WorkDrive TrueSync, make sure the store folder is set to "available offline".`); }
++      if (txt == null) { missingDays.push(k); continue; }
++      storedDays.push(k);
++      for (const [email, v] of parseDay(txt)) {
++        if (v.mau != null) { const p = firstMau.get(email); if (p === undefined || v.mau < p) firstMau.set(email, v.mau); }
++        if (v.login != null) { const p = firstLogin.get(email); if (p === undefined || v.login < p) firstLogin.set(email, v.login); }
++      }
++    }
++    return { firstMau, firstLogin, missingDays, storedDays };
++  }
++
++  /* ---------- validation (pure) ---------- */
++  /**
++   * @param p  {mode:'normal'|'repeated', from, to, lookbackFrom}  (day keys or '')
++   * @returns {{errors:{code,msg}[], warnings:{code,msg}[], windows:{report, lookback}}}
++   */
++  function validateRange(p, summary, today) {
++    const errors = [], warnings = [];
++    const E = (code, msg) => errors.push({ code, msg });
++    const W = (code, msg) => warnings.push({ code, msg });
++    const mode = p && p.mode === 'repeated' ? 'repeated' : 'normal';
++    const from = (p && p.from) || '', to = (p && p.to) || '', lb = (p && p.lookbackFrom) || '';
++    const windows = { report: null, lookback: null };
++    const storeEmpty = !summary || summary.empty;
++
++    if (!isDayKey(from) || !isDayKey(to)) E('range-empty', 'Pick both From and To dates.');
++    else {
++      windows.report = { from, to };
++      if (from > to) E('range-order', 'From date must be on or before To date.');
++      if (from > today || to > today) E('future', "Dates after today aren't allowed.");
++    }
++    if (storeEmpty) E('store-empty', 'The store is empty — an admin needs to add files first.');
++    else if (windows.report && from <= to) {
++      const { firstDay, lastDay } = summary;
++      if (to < firstDay || from > lastDay) {
++        E('outside-store', `No data stored for ${compressDays(dayRange(from, to))}. Store has data from ${fmtDMY(firstDay)} to ${fmtDMY(lastDay)}.`);
++      } else {
++        const outside = dayRange(from, to).filter(k => k < firstDay || k > lastDay);
++        if (outside.length) W('partly-outside', `Store only covers ${fmtDMY(firstDay)} to ${fmtDMY(lastDay)}. Days outside this (${compressDays(outside)}) count as no activity, so MAU will be understated.`);
++        const miss = summary.missingDays.filter(k => k >= from && k <= to);
++        if (miss.length) W('missing-in-range', `No data for ${compressDays(miss)}.`);
++      }
++    }
++    if (mode === 'repeated') {
++      if (!isDayKey(lb)) E('lookback-empty', 'Pick the look-back start date.');
++      else if (windows.report && from <= to) {
++        if (lb >= from) E('lookback-order', 'Look-back must start before the report period.');
++        else {
++          const lbEnd = addDays(from, -1);
++          windows.lookback = { from: lb, to: lbEnd };
++          if (!storeEmpty) {
++            const { firstDay, lastDay } = summary;
++            if (lb < firstDay) W('lookback-before-store', `Look-back starts before stored data (${fmtDMY(firstDay)}); earlier days count as no activity.`);
++            const miss = summary.missingDays.filter(k => k >= lb && k <= lbEnd && k >= firstDay && k <= lastDay);
++            if (miss.length) W('missing-in-lookback', `Look-back has no data for ${compressDays(miss)}.`);
++          }
++        }
++      }
++    }
++    return { errors, warnings, windows };
++  }
++  /** Quick-pick look-back start dates: 'month-start' | '7d' | '30d' | 'all' → day key or null. */
++  function lookbackPreset(name, from, summary) {
++    if (!isDayKey(from)) return null;
++    let k = null;
++    if (name === 'month-start') k = from.slice(0, 7) + '-01';
++    else if (name === '7d') k = addDays(from, -7);
++    else if (name === '30d') k = addDays(from, -30);
++    else if (name === 'all') k = summary && !summary.empty ? summary.firstDay : null;
++    return k && k < from ? k : null;
++  }
++
++  /* ---------- range report (Normal / With Repeated) ---------- */
++  /** Output file name for a report — known before processing so the UI can open the save picker first. */
++  function reportFilename(p) {
++    return `Adobe_MAU_${fmtDMY(p.from)}_to_${fmtDMY(p.to)}${p.mode === 'repeated' ? '_with_Repeated' : ''}.xlsx`;
++  }
++  async function runRangeReport(p, status, progress, templateArrayBuffer) {
++    const P = window.Processing;
++    const st = status || (() => {}), pr = progress || (() => {});
++    const mode = p.mode === 'repeated' ? 'repeated' : 'normal';
++    const manifest = await loadManifest();
++    const summary = summarize(manifest);
++    const v = validateRange({ ...p, mode }, summary, todayKey());
++    if (v.errors.length) throw new StoreError('invalid', v.errors[0].msg);
++
++    st('Reading stored activity…'); pr(4);
++    const cur = await loadActivityForRange(p.from, p.to, manifest);
++    let prev = null, lbEnd = null;
++    if (mode === 'repeated') {
++      lbEnd = addDays(p.from, -1);
++      st('Reading look-back activity…'); pr(8);
++      prev = await loadActivityForRange(p.lookbackFrom, lbEnd, manifest);
++    }
++    const createdList = [...cur.firstMau.keys()].sort();
++    const otherList = [...cur.firstLogin.keys()].sort();
++    const activity = { createdList, otherList, createdSet: new Set(createdList), otherSet: new Set(otherList), firstMau: cur.firstMau, fileStats: [] };
++    const opts = { mode: 'range' };
++    if (prev) {
++      opts.earlierMauMap = prev.firstMau;
++      opts.earlierLabel = 'MAU in Look-back';
++      opts.repeatedTitle = `Repeated / New / Pending — look-back ${fmtDMY(p.lookbackFrom)} to ${fmtDMY(lbEnd)} vs report ${fmtDMY(p.from)} to ${fmtDMY(p.to)}`;
++    }
++    const res = await P.buildReportFromActivity(activity, opts, st, pr, templateArrayBuffer);
++    res.filename = reportFilename({ ...p, mode });
++    if (res.pendingCsvBlob) res.pendingCsvName = `Pending_Students_${fmtDMY(p.from)}_to_${fmtDMY(p.to)}.csv`;
++    const split = days => ({
++      gaps: days.filter(k => !summary.empty && k >= summary.firstDay && k <= summary.lastDay),
++      outside: days.filter(k => summary.empty || k < summary.firstDay || k > summary.lastDay)
++    });
++    res.range = {
++      mode, from: p.from, to: p.to, lookbackFrom: mode === 'repeated' ? p.lookbackFrom : null, lookbackTo: lbEnd,
++      storedDays: cur.storedDays.length, studentsWithActivity: createdList.length + otherList.length,
++      missingCurrent: split(cur.missingDays), missingLookback: prev ? split(prev.missingDays) : null
++    };
++    return res;
++  }
++
++  /* ---------- public API ---------- */
++  const Store = {
++    StoreError, ADMIN_HASHES,
++    _now: () => Date.now(),                    // overridable clock (tests)
++    // folder
++    isSupported, restoreFolder, reconnect, pickFolder, ensureWritable, useAdapter, isConnected, folderName,
++    // admin
++    verifyAdminPassword, adminLogin, exitAdmin, isAdmin,
++    // data
++    parseLogFiles, commitParsed, ingestLogFiles, resetStore, loadManifest, getSummary, summarize, formatLabel, coverageGrid,
++    loadActivityForRange, validateRange, lookbackPreset, runRangeReport, reportFilename,
++    // helpers (exported for the UI + tests)
++    dayKeyFromTs, todayKey, addDays, dayRange, fmtDMY, fmtShort, compressDays, monthLabel, fmtIst, isDayKey,
++    parseDay, serializeDay, checkMonthGuard
++  };
++  window.Store = Store;
++})();
