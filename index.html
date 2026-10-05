@@ -10,7 +10,7 @@
 
 <header class="app-header">
   <h1>Content Logs Analyzer</h1>
-  <p class="subtitle">Browser version &mdash; processes files locally, no upload to any server</p>
+  <p class="subtitle">Browser version &mdash; your files are processed locally in your browser</p>
 </header>
 
 <nav class="tabs">
@@ -143,19 +143,19 @@
   <section id="tab-range" class="tab-pane">
     <div class="features">
       <strong>Date-Range MAU Report</strong>
-      <p>Pick a date range and get the final Adobe summary for just that period &mdash; built from a shared <strong>daily store</strong> that an admin tops up with each day's content logs.</p>
+      <p>Pick a date range and get the final Adobe summary for just that period &mdash; built from a shared <strong>daily store</strong> that an admin tops up with each day's content logs. <strong>No login and no Zoho access needed</strong> to download a report.</p>
       <ul>
         <li><strong>Normal report</strong> &mdash; MAU, logins and <code>First MAU Date</code> for the dates you pick.</li>
         <li><strong>Report with Repeated</strong> &mdash; also pick a look-back start. Students who were already MAU in the look-back window show as <strong>Repeated</strong> (not New MAU).</li>
         <li>Days follow India time (IST). The store label below always shows which dates are stored.</li>
       </ul>
-      <p class="muted">Needs Chrome or Edge over http/https, and the <strong>Zoho WorkDrive TrueSync</strong> folder <code>Adobe MAU Store</code> (set to &ldquo;available offline&rdquo;). You pick that folder once; this page remembers it.</p>
+      <p class="muted">The store loads by itself when this page opens. Only admins can add days or reset it (they log in below).</p>
     </div>
 
     <!-- Card 1: data store -->
     <div class="card" id="storeCard">
-      <div class="card-title">Data store <span id="storeFolderName" class="card-sub"></span></div>
-      <div id="storeLabel" class="store-label">Choose the store folder to begin.</div>
+      <div class="card-title">Data store <span id="storeSource" class="card-sub"></span></div>
+      <div id="storeLabel" class="store-label">Reading the store…</div>
       <div id="storeCoverage" class="coverage"></div>
       <div id="storeLegend" class="coverage-legend hidden">
         <span><i class="cov-cell stored"></i> stored</span>
@@ -163,12 +163,12 @@
         <span><i class="cov-cell out"></i> outside stored dates</span>
       </div>
       <div class="actions card-actions">
-        <button id="storeChoose" class="btn btn-secondary">Choose store folder</button>
-        <button id="storeReconnect" class="btn btn-primary hidden">Reconnect store</button>
         <button id="storeRefresh" class="btn btn-secondary" disabled>Refresh</button>
         <span class="admin-bar">
           <button id="adminLoginBtn" class="link-btn">Admin login</button>
-          <span id="adminOn" class="admin-on hidden">Admin mode on <button id="adminExitBtn" class="link-btn">Exit admin</button></span>
+          <span id="adminOn" class="admin-on hidden">Admin mode on
+            <button id="publishBtn" class="link-btn">Publishing settings</button>
+            <button id="adminExitBtn" class="link-btn">Exit admin</button></span>
           <button id="resetStoreBtn" class="link-btn danger hidden">Reset store (admin)</button>
         </span>
       </div>
@@ -178,7 +178,8 @@
     <!-- Card 2: add daily logs (admin only) -->
     <div class="card hidden" id="addCard">
       <div class="card-title">Add daily logs <span class="card-sub">admin</span></div>
-      <p class="muted card-note">Select one or many raw Content-Log CSVs (any mix of days). Each row is filed under its own IST date; adding the same file twice never double-counts.</p>
+      <p class="muted card-note">Select one or many raw Content-Log CSVs (any mix of days). Each row is filed under its own IST date; adding the same file twice never double-counts. Adding publishes to the shared store, so everyone sees it.</p>
+      <div id="addSetup" class="msg warn hidden">Publishing isn&rsquo;t set up in this browser yet. <button id="addSetupBtn" class="link-btn" type="button">Open Publishing settings</button></div>
       <div class="actions">
         <label class="btn btn-primary">
           Select Content-Log Files
@@ -269,7 +270,7 @@
 </div>
 
 <footer class="app-footer">
-  <span>All processing happens in your browser. Files never leave your machine.</span>
+  <span>All processing happens in your browser. Your files never leave your machine &mdash; the one exception is the Date-Range store: when an admin adds daily logs, only each student&rsquo;s email and first-activity times are published to it.</span>
 </footer>
 
 <!-- Libraries via CDN -->

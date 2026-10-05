@@ -464,14 +464,17 @@
     summary: null,      // Store.summarize(...) of the current store
     manifest: null,
     addList: [],        // raw content-log files queued for "Add to store"
-    busy: false         // an add / report / reset is running
+    busy: false,        // an add / report / reset is running
+    seq: 0,             // refresh counter (ignore out-of-order answers)
+    lastRead: 0,        // when the manifest was last read (ms)
+    loadError: ''       // why the last read failed, if it did
   };
   const r$ = id => document.getElementById(id);
 
-  const storeFolderName = r$('storeFolderName'), storeLabel = r$('storeLabel');
-  const storeCoverage = r$('storeCoverage'), storeLegend = r$('storeLegend');
-  const storeChoose = r$('storeChoose'), storeReconnect = r$('storeReconnect'), storeRefresh = r$('storeRefresh');
-  const adminLoginBtn = r$('adminLoginBtn'), adminOn = r$('adminOn'), adminExitBtn = r$('adminExitBtn');
+  const storeSource = r$('storeSource'), storeLabel = r$('storeLabel');
+  const storeCoverage = r$('storeCoverage'), storeLegend = r$('storeLegend'), storeRefresh = r$('storeRefresh');
+  const adminLoginBtn = r$('adminLoginBtn'), adminOn = r$('adminOn'), adminExitBtn = r$('adminExitBtn'), publishBtn = r$('publishBtn');
+  const addSetup = r$('addSetup'), addSetupBtn = r$('addSetupBtn');
   const resetStoreBtn = r$('resetStoreBtn'), storeMsg = r$('storeMsg');
   const addCard = r$('addCard'), addFilesInput = r$('addFiles'), addClearBtn = r$('addClear'), addRunBtn = r$('addRun');
   const addFileList = r$('addFileList'), addProgress = r$('addProgress'), addStatus = r$('addStatus'), addResult = r$('addResult');
@@ -552,9 +555,21 @@
   /* ---------- store card ---------- */
   function setStoreMsg(text, type = '') { setStatus(storeMsg, text, type); }
 
+  /** Errors that mean "fix the Publishing settings" (token / repository / branch). */
+  const SETTINGS_CODES = ['no-token', 'bad-token', 'no-write', 'no-repo', 'no-branch', 'bad-repo'];
+  const needsSettings = e => !!e && (SETTINGS_CODES.includes(e.code) || (e.code === 'not-configured' && Store.isAdmin()));
+
   function renderLabel() {
     storeLabel.className = 'store-label';
-    if (!Store.isConnected()) return;
+    const st = Store.status();
+    if (!st.configured) {
+      storeLabel.classList.add('warn');
+      storeLabel.textContent = Store.isAdmin()
+        ? "The shared store isn't connected yet. Click “Publishing settings” to connect it."
+        : "The shared store isn't set up yet. Please ask an admin to finish the one-time setup.";
+      return;
+    }
+    if (T4.loadError) { storeLabel.classList.add('error'); storeLabel.textContent = `Could not read the store: ${T4.loadError}`; return; }
     if (!T4.summary) { storeLabel.textContent = 'Reading the store…'; return; }
     storeLabel.textContent = Store.formatLabel(T4.summary);
     storeLabel.classList.add(T4.summary.empty || T4.summary.missingDays.length ? 'warn' : 'ok');
@@ -591,89 +606,53 @@
     }
   }
 
-  /** Re-read the store (manifest) and redraw the label, coverage strip and report checks. */
-  async function refreshStore(quiet) {
-    if (!Store.isConnected()) { T4.summary = null; T4.manifest = null; }
+  /** Re-read the store (manifest) and redraw the label, coverage strip and report checks. Anyone can do this — no login. */
+  async function refreshStore(quiet, force) {
+    const st = Store.status();
+    storeRefresh.disabled = !st.configured;
+    storeSource.textContent = Store.isAdmin() && st.repo ? `— ${st.repo}` : '';
+    const seq = ++T4.seq;
+    if (!st.configured) { T4.summary = null; T4.manifest = null; T4.loadError = ''; }
     else {
       try {
-        const { manifest, summary } = await Store.getSummary();
-        T4.manifest = manifest; T4.summary = summary;
+        const { manifest, summary } = await Store.getSummary({ force: !!force });
+        if (seq !== T4.seq) return;                       // a newer refresh is already running
+        T4.manifest = manifest; T4.summary = summary; T4.loadError = '';
+        T4.lastRead = Date.now();
         if (!quiet) setStoreMsg('');
       } catch (e) {
-        T4.manifest = null; T4.summary = null;
-        storeLabel.className = 'store-label error';
-        storeLabel.textContent = `Could not read the store: ${e.message}`;
-        renderCoverage(); renderAdmin(); renderValidation();
-        return;
+        if (seq !== T4.seq) return;
+        T4.manifest = null; T4.summary = null; T4.loadError = e.message || String(e);
       }
     }
     applyDateHints();
     renderLabel(); renderCoverage(); renderAdmin(); renderValidation();
   }
 
-  function renderFolder(state) {
-    const connected = state && state.state === 'ready';
-    storeFolderName.textContent = connected ? `— folder: ${state.name}` : '';
-    storeChoose.textContent = connected ? 'Change folder' : 'Choose store folder';
-    storeChoose.classList.toggle('btn-primary', !connected && !(state && state.state === 'needs-permission'));
-    storeChoose.classList.toggle('btn-secondary', connected || (state && state.state === 'needs-permission'));
-    storeReconnect.classList.toggle('hidden', !(state && state.state === 'needs-permission'));
-    if (state && state.state === 'needs-permission') storeReconnect.textContent = `Reconnect store (${state.name})`;
-    storeRefresh.disabled = !connected;
-    storeChoose.disabled = !!(state && state.state === 'unsupported');
-    if (!connected) {
-      storeLabel.className = 'store-label' + (state && state.state === 'unsupported' ? ' error' : ' warn');
-      storeLabel.textContent =
-        state && state.state === 'unsupported' ? "This browser can't open folders. Please use Chrome or Edge on a desktop (over http/https)."
-        : state && state.state === 'needs-permission' ? `Click “Reconnect store” to reopen “${state.name}” (the browser asks once per visit).`
-        : 'Choose the store folder to begin (the “Adobe MAU Store” folder synced by WorkDrive TrueSync).';
-      T4.summary = null; T4.manifest = null;
-      renderCoverage(); renderAdmin(); renderValidation();
-    }
-  }
-
-  async function onFolderState(state) {
-    renderFolder(state);
-    if (state.state === 'ready') await refreshStore();
-  }
-
-  storeChoose.addEventListener('click', async () => {
-    try {
-      const st = await Store.pickFolder();
-      if (st.state === 'cancelled') return;
-      T4.addList = []; renderAddList();
-      await onFolderState(st);
-      setStoreMsg(`Store folder set to “${st.name}”. This page will remember it.`, 'success');
-    } catch (e) { setStoreMsg(e.message, 'error'); }
-  });
-  storeReconnect.addEventListener('click', async () => {
-    try { await onFolderState(await Store.reconnect()); }
-    catch (e) { setStoreMsg(e.message, 'error'); }
-  });
   storeRefresh.addEventListener('click', async () => {
     storeRefresh.disabled = true;
-    await refreshStore(true);
-    storeRefresh.disabled = !Store.isConnected();
-    setStoreMsg('Store re-read.', 'success');
+    await refreshStore(true, true);                  // Refresh = look for the newest published data right now
+    if (Store.status().configured && T4.summary) setStoreMsg('Store re-read.', 'success');     // else the label already explains why not
   });
-  // Pick up days that TrueSync delivered while the page sat in the background.
-  window.addEventListener('focus', () => {
-    if (Store.isConnected() && !T4.busy && !dlgState) refreshStore(true);
-  });
+  // Pick up days an admin published while this page sat open: when the tab is opened or the window regains focus.
+  const refreshIfStale = () => { if (Store.status().configured && !T4.busy && !dlgState && Date.now() - T4.lastRead > 30000) refreshStore(true); };
+  window.addEventListener('focus', refreshIfStale);
+  document.querySelector('button[data-tab="range"]').addEventListener('click', refreshIfStale);
 
   /* ---------- admin mode ---------- */
   function renderAdmin() {
-    const admin = Store.isAdmin();
+    const admin = Store.isAdmin(), st = Store.status();
     adminLoginBtn.classList.toggle('hidden', admin);
     adminOn.classList.toggle('hidden', !admin);
-    resetStoreBtn.classList.toggle('hidden', !admin);
-    addCard.classList.toggle('hidden', !(admin && Store.isConnected()));
+    resetStoreBtn.classList.toggle('hidden', !(admin && st.configured));
+    addCard.classList.toggle('hidden', !(admin && st.configured));
+    addSetup.classList.toggle('hidden', st.canPublish);
     addRunBtn.disabled = T4.busy || !T4.addList.length;
   }
 
   adminLoginBtn.addEventListener('click', async () => {
     const wrap = el('div');
-    wrap.appendChild(el('p', '', 'Enter the admin password to add daily logs or reset the store.'));
+    wrap.appendChild(el('p', '', 'Enter the admin password to add daily logs, reset the store or change the publishing settings.'));
     const input = el('input'); input.type = 'password'; input.autocomplete = 'off'; input.placeholder = 'Admin password';
     wrap.appendChild(input);
     wrap.appendChild(el('p', 'muted', 'Admin mode lasts until you close this page.'));
@@ -705,14 +684,89 @@
         return false;
       }
     });
-    if (ok) { renderAdmin(); setStoreMsg('Admin mode is on until you close this page.', 'success'); }
+    if (ok) {
+      renderAdmin(); refreshStore(true);
+      setStoreMsg('Admin mode is on until you close this page.', 'success');
+      // Publishing needs a token in this browser — if it isn't there yet, go straight to the settings.
+      if (!Store.status().canPublish) { setStoreMsg('Admin mode is on. Publishing isn’t set up in this browser yet — fill in the settings below.', 'success'); openPublishSettings(); }
+    }
   });
   adminExitBtn.addEventListener('click', () => {
     Store.exitAdmin();
     T4.addList = []; renderAddList();
-    renderAdmin();
+    renderAdmin(); storeSource.textContent = '';
     setStoreMsg('Admin mode is off.');
+    refreshStore(true);
   });
+
+  /* ---------- publishing settings (admin) ---------- */
+  const normRepo = s => String(s || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+
+  async function openPublishSettings() {
+    if (!Store.isAdmin()) return null;
+    const cur = Store.getSettings();
+    const field = (label, input) => { const l = el('label', 'field stacked', label); l.appendChild(input); return l; };
+    const mk = (type, value, ph) => { const i = el('input'); i.type = type; i.value = value || ''; i.placeholder = ph || ''; i.autocomplete = 'off'; i.spellcheck = false; return i; };
+
+    const wrap = el('div', 'settings-form');
+    wrap.appendChild(el('p', '', 'Admins publish each day’s data to a GitHub repository and everyone else reads it from there. These settings are saved only in this browser.'));
+    const repo = mk('text', cur.repo, 'owner/name  (e.g. myorg/clanalysis-data)');
+    const branch = mk('text', cur.branch || 'main', 'main');
+    const token = mk('password', '', cur.hasToken ? '•••••• saved — leave empty to keep it' : 'github_pat_…');
+    repo.id = 'setRepo'; branch.id = 'setBranch'; token.id = 'setToken';
+    wrap.appendChild(field('Data repository', repo));
+    wrap.appendChild(field('Branch', branch));
+    wrap.appendChild(field('GitHub token', token));
+    wrap.appendChild(el('p', 'muted', 'The token lets this browser change that one repository — keep it private and don’t save it on a shared computer.'));
+
+    const removeBtn = el('button', 'link-btn danger', 'Remove the saved token from this browser');
+    removeBtn.type = 'button'; removeBtn.id = 'setRemoveToken';
+    removeBtn.classList.toggle('hidden', !cur.hasToken);
+    wrap.appendChild(removeBtn);
+
+    const cfgBox = el('div', 'cfg-box');
+    const cfgNote = el('p', '', ''); cfgNote.id = 'setCfgNote';
+    const cfgPre = el('pre', 'cfg-text'); cfgPre.id = 'setCfgText';
+    cfgBox.appendChild(cfgNote); cfgBox.appendChild(cfgPre);
+    wrap.appendChild(cfgBox);
+    const drawCfg = () => {
+      const r = normRepo(repo.value), b = branch.value.trim() || 'main';
+      cfgPre.textContent = JSON.stringify({ repo: r || 'owner/name', branch: b }, null, 2);
+      const same = Store.getSettings().fileRepo && Store.getSettings().fileRepo === r;
+      cfgNote.textContent = same
+        ? '✓ Everyone’s page already uses this repository (the website’s store-config.json matches).'
+        : 'For everyone else to see the store, the website must contain a file named store-config.json (next to index.html) with exactly this:';
+      cfgBox.classList.toggle('ok', !!same);
+    };
+    repo.addEventListener('input', drawCfg); branch.addEventListener('input', drawCfg); drawCfg();
+
+    removeBtn.addEventListener('click', () => {
+      Store.clearToken(); token.placeholder = 'github_pat_…'; removeBtn.classList.add('hidden');
+      if (dlgState) dlgState.say('Token removed from this browser.', 'info');
+    });
+
+    const res = await openDialog({
+      title: 'Publishing settings', body: wrap, okText: 'Save and test', cancelText: 'Close',
+      onOpen: ({ submit }) => {
+        setTimeout(() => (repo.value ? token : repo).focus(), 30);
+        for (const i of [repo, branch, token]) i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      },
+      onOk: async say => {
+        const saved = Store.saveSettings({ repo: repo.value, branch: branch.value, token: token.value });
+        token.value = '';
+        if (!saved.canPublish) return { saved: true, tested: false, remembered: saved.saved };
+        say('Testing the connection…', 'info');
+        await Store.ensureWritable();                       // throws a friendly message → stays open
+        return { saved: true, tested: true, remembered: saved.saved };
+      }
+    });
+    await refreshStore(true);
+    if (res && res.tested) setStoreMsg('Publishing is connected — this browser can now add days to the store.' + (res.remembered ? '' : ' (This browser won’t remember the token after you close the page.)'), 'success');
+    else if (res && res.saved) setStoreMsg('Repository saved. Add a GitHub token to be able to publish.', 'success');
+    return res;
+  }
+  publishBtn.addEventListener('click', () => openPublishSettings());
+  addSetupBtn.addEventListener('click', () => openPublishSettings());
 
   /* ---------- add daily logs (admin) ---------- */
   function renderAddList() {
@@ -761,7 +815,7 @@
       addResult.appendChild(el('div', 'result-note warn',
         `Already added earlier: ${res.duplicateFiles.join(', ')} — re-adding never double-counts, so nothing changed for those rows.`));
     }
-    addResult.appendChild(el('div', 'result-note', 'Saved into the synced folder — TrueSync uploads it to WorkDrive shortly.'));
+    addResult.appendChild(el('div', 'result-note', 'Published to the shared store. Everyone can use the new days within a few minutes (Refresh shows them right away).'));
   }
 
   addRunBtn.addEventListener('click', async () => {
@@ -771,14 +825,13 @@
     addClearBtn.disabled = true; addResult.textContent = '';
     setProgress(addProgress, 0);
     try {
-      // Needs the click's user activation, so it goes first.
-      await Store.ensureWritable();
+      await Store.ensureWritable();        // confirms the token before any heavy reading
       const parsed = await Store.parseLogFiles(T4.addList, ({ fileIndex, fileCount, name, pct }) => {
         setProgress(addProgress, ((fileIndex + pct / 100) / fileCount) * 90);
         setStatus(addStatus, `Reading ${name} (${fileIndex + 1} of ${fileCount}) — ${Math.round(pct)}%`);
       });
       if (!parsed.days.size) throw new Error('No usable rows found. The files need Action, Date and User Email columns.');
-      setStatus(addStatus, 'Saving to the store…'); setProgress(addProgress, 94);
+      setStatus(addStatus, 'Publishing to the shared store…'); setProgress(addProgress, 94);
       let res = await Store.commitParsed(parsed);
       if (res.needsConfirm) {
         const go = await openDialog({ title: 'Different month in these files', body: res.guard.message, okText: 'Continue anyway', cancelText: 'Cancel' });
@@ -786,7 +839,7 @@
         res = await Store.commitParsed(parsed, { confirmMixedMonths: true });
       }
       setProgress(addProgress, 100);
-      setStatus(addStatus, `Done — ${plural(res.days.length, 'day')} updated.`, 'success');
+      setStatus(addStatus, `Done — ${plural(res.days.length, 'day')} published.`, 'success');
       renderAddResult(res);
       T4.addList = []; renderAddList();
       await refreshStore(true);
@@ -794,6 +847,7 @@
       console.error(e);
       setStatus(addStatus, `Error: ${e.message}`, 'error');
       setProgress(addProgress, 0);
+      if (needsSettings(e)) setTimeout(openPublishSettings, 0);     // token / repository problem → open the settings
     } finally {
       T4.busy = false; addClearBtn.disabled = false; renderAdmin();
     }
@@ -802,8 +856,8 @@
   /* ---------- reset (admin) ---------- */
   resetStoreBtn.addEventListener('click', async () => {
     if (!Store.isAdmin() || T4.busy) return;
-    try { await Store.ensureWritable(); }       // user activation first
-    catch (e) { setStoreMsg(e.message, 'error'); return; }
+    try { await Store.ensureWritable(); }
+    catch (e) { setStoreMsg(e.message, 'error'); if (needsSettings(e)) openPublishSettings(); return; }
     let manifest;
     try { manifest = await Store.loadManifest(); } catch (e) { setStoreMsg(e.message, 'error'); return; }
     const s = Store.summarize(manifest);
@@ -811,7 +865,7 @@
     const month = s.firstDay.slice(0, 7);
 
     const wrap = el('div');
-    wrap.appendChild(el('p', '', `This archives all ${plural(s.dayCount, 'stored day')} (${Store.fmtDMY(s.firstDay)} to ${Store.fmtDMY(s.lastDay)}) into the folder archive/${month} and empties the store. Nothing is deleted — the data stays in the archive folder.`));
+    wrap.appendChild(el('p', '', `This archives all ${plural(s.dayCount, 'stored day')} (${Store.fmtDMY(s.firstDay)} to ${Store.fmtDMY(s.lastDay)}) into the folder archive/${month} of the data repository and empties the store. Nothing is deleted — the archived data stays in the repository.`));
     wrap.appendChild(el('p', '', 'Type RESET to confirm:'));
     const input = el('input'); input.type = 'text'; input.autocomplete = 'off'; input.placeholder = 'RESET';
     wrap.appendChild(input);
@@ -827,7 +881,7 @@
       },
       onOk: async say => {
         if (input.value.trim() !== 'RESET') { say('Type RESET (capitals) to confirm.'); return false; }
-        say('Archiving…', 'info');
+        say('Archiving and publishing…', 'info');
         return await Store.resetStore();
       }
     });
@@ -838,7 +892,7 @@
       setStoreMsg(`Store reset. ${plural(done.dayCount, 'day')} archived to ${done.archivedTo}.`, 'success');
       showModal('Store reset',
         `Archived ${plural(done.dayCount, 'day')} (${Store.fmtDMY(done.firstDay)} to ${Store.fmtDMY(done.lastDay)}) to:\n  ${done.archivedTo}\n\n` +
-        'The store is now empty — add the new month\'s files to start again. The archive folder is kept in WorkDrive.');
+        'The store is now empty for everyone — add the new month\'s files to start again. The archive stays in the data repository.');
     }
     renderAdmin();
   });
@@ -857,7 +911,8 @@
     const v = Store.validateRange(p, connected ? T4.summary : null, Store.todayKey());
     rptMsgs.textContent = '';
     if (!connected) {
-      rptMsgs.appendChild(el('div', 'msg error', Store.isConnected() ? 'Reading the store…' : 'Choose the store folder first.'));
+      const st = Store.status();
+      rptMsgs.appendChild(el('div', 'msg error', !st.configured ? "The shared store isn't set up yet." : (T4.loadError ? 'The store could not be read — press Refresh.' : 'Reading the store…')));
     } else {
       // Don't shout about empty fields before the user has touched the form (an empty store is always shown).
       const touched = !!(p.from || p.to || p.lookbackFrom);
@@ -985,11 +1040,12 @@
     }
   });
 
-  /* ---------- start-up: reconnect to the remembered folder ---------- */
+  /* ---------- start-up: open the shared store for everyone ---------- */
   (async () => {
-    renderAdmin(); renderValidation();
-    try { await onFolderState(await Store.restoreFolder()); }
-    catch (e) { setStoreMsg(e.message, 'error'); }
+    renderAdmin(); renderValidation(); renderLabel();
+    try { await Store.init(); }
+    catch (e) { console.error(e); }
+    await refreshStore(true);
   })();
 
 })();

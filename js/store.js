@@ -1,24 +1,24 @@
 /* ============================================================
  * store.js — Daily activity store + date-range MAU report (Tab 4)
  *
- * The store is a plain folder (a Zoho WorkDrive folder synced to the laptop by
- * WorkDrive TrueSync) that the browser reads/writes through the File System
- * Access API. Layout:
+ * The store is a small public GitHub "data repo". Everyone reads it over plain HTTPS (no login, no Zoho);
+ * admins add days / reset it from the page, which publishes one atomic commit (see "where the store lives").
+ * Layout inside the data repo:
  *
- *   manifest.json            index of stored days (rebuilt from daily/ if lost)
+ *   manifest.json            index of stored days
  *   daily/YYYY-MM-DD.csv     one file per IST day:  email,first_mau_ts,first_login_ts
- *   archive/YYYY-MM/...      created by an admin "Reset store"
+ *   archive/YYYY-MM/...      created by an admin "Reset store" (nothing is ever deleted — git keeps history too)
  *
  * Only EARLIEST timestamps are kept per student per day, so adding the same raw
  * file twice (or overlapping files) can never double-count.
  *
- * All folder I/O goes through a small adapter (readText / writeText / exists /
- * dirExists / list / remove / probeWrite) so the same code runs in the browser
- * (FileSystemDirectoryHandle) and in Node tests (fs).
+ * All storage I/O goes through a small adapter (readText / writeText / exists / remove / probeWrite,
+ * optional list / flush / discard) so the same code runs in the browser (HTTP + GitHub API) and in
+ * Node tests (fs).
  *
  * Depends on (loaded earlier): Papa (PapaParse) and window.Processing
  * (parseLogTimestamp, buildReportFromActivity).
- * No credentials live here — the Zoho account is only used by TrueSync itself.
+ * No credential is stored in the code: an admin's GitHub token lives only in that admin's browser.
  * ============================================================ */
 (function () {
   'use strict';
@@ -37,7 +37,7 @@
   const MAU_ACTIONS = new Set(['Created', 'Created public link']);
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const READ_ONLY_MSG = 'This folder is read-only for you (WorkDrive Viewer). Ask an admin with Editor access to do this.';
+  const READ_ONLY_MSG = "You don't have permission to change the store. Ask an admin to do this.";
 
   class StoreError extends Error {
     constructor(code, message) { super(message); this.name = 'StoreError'; this.code = code; }
@@ -111,75 +111,38 @@
   }
   function countMau(map) { let n = 0; for (const v of map.values()) if (v.mau != null) n++; return n; }
 
-  /* ---------- adapter (browser) ---------- */
-  function splitPath(p) { const parts = p.split('/'); return { dirs: parts.slice(0, -1), name: parts[parts.length - 1] }; }
-  async function walkDir(root, dirs, create) {
-    let d = root;
-    for (const part of dirs) d = await d.getDirectoryHandle(part, { create: !!create });
-    return d;
-  }
-  const isNotFound = e => e && (e.name === 'NotFoundError' || e.name === 'TypeMismatchError');
-
-  function browserAdapter(root) {
-    return {
-      async readText(path) {
-        const { dirs, name } = splitPath(path);
-        try {
-          const dir = await walkDir(root, dirs, false);
-          const fh = await dir.getFileHandle(name);
-          return await (await fh.getFile()).text();
-        } catch (e) { if (isNotFound(e)) return null; throw e; }
-      },
-      async writeText(path, text) {
-        const { dirs, name } = splitPath(path);
-        const dir = await walkDir(root, dirs, true);
-        const fh = await dir.getFileHandle(name, { create: true });
-        const w = await fh.createWritable();
-        await w.write(text);
-        await w.close();
-      },
-      async exists(path) { return (await this.readText(path)) !== null; },
-      async dirExists(path) {
-        try { await walkDir(root, path.split('/'), false); return true; } catch (e) { if (isNotFound(e)) return false; throw e; }
-      },
-      async list(dirPath) {
-        try {
-          const dir = await walkDir(root, dirPath ? dirPath.split('/') : [], false);
-          const out = [];
-          for await (const [name, h] of dir.entries()) if (h.kind === 'file') out.push(name);
-          return out;
-        } catch (e) { if (isNotFound(e)) return []; throw e; }
-      },
-      async remove(path) {
-        const { dirs, name } = splitPath(path);
-        const dir = await walkDir(root, dirs, false);
-        await dir.removeEntry(name);
-      },
-      /** Throws if this user can't write (e.g. WorkDrive Viewer). Creates an empty manifest if absent. */
-      async probeWrite() {
-        const fh = await root.getFileHandle(MANIFEST, { create: true });
-        const w = await fh.createWritable({ keepExistingData: true });
-        await w.abort();                                   // permission check only — no change
-        if ((await fh.getFile()).size === 0) {
-          const w2 = await fh.createWritable();
-          await w2.write(JSON.stringify({ version: 1, days: {} }));
-          await w2.close();
-        }
-      }
-    };
-  }
-
-  /* ---------- connection state ---------- */
-  let _adapter = null, _handle = null, _pendingHandle = null, _folderName = '';
+  /* ---------- where the store lives ---------- */
+  // Readers (everyone, no login): plain HTTPS GET of  <base>manifest.json  and  <base>daily/YYYY-MM-DD.csv
+  //   from a public GitHub "data repo" (served by raw.githubusercontent.com unless dataBaseUrl says otherwise).
+  // Admins: one atomic commit per Add / Reset through the GitHub Git Data API, using a fine-grained token
+  //   that lives only in that admin's browser (localStorage) — never in the code.
+  const DEFAULT_CFG = { repo: '', branch: 'main', dataBaseUrl: '', apiBase: 'https://api.github.com', rawBase: 'https://raw.githubusercontent.com' };
+  const LS_KEY = 'cla_publish';
+  const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+  let _cfg = { ...DEFAULT_CFG };          // effective settings
+  let _token = '';
+  let _fetch = (...a) => fetch(...a);     // overridable (tests)
+  let _override = null;                   // tests: one ready-made adapter used for reads AND writes
+  let _reader = null, _writer = null, _storeName = '', _cfgSource = 'none';
   let _admin = false, _fails = 0, _lockUntil = 0;
 
-  function setFolder(handle) {
-    _handle = handle; _pendingHandle = null; _folderName = handle.name || '';
-    _adapter = browserAdapter(handle);
-  }
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const encPath = p => p.split('/').map(encodeURIComponent).join('/');
+  function lsGet() { try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (_) { return null; } }
+  function lsSet(o) { try { if (o) localStorage.setItem(LS_KEY, JSON.stringify(o)); else localStorage.removeItem(LS_KEY); return true; } catch (_) { return false; } }
+  const withCb = u => u + (u.includes('?') ? '&' : '?') + 'cb=' + Date.now();      // busts browser/proxy caches (NOT GitHub's file CDN — that is why reads are pinned to a commit)
+
   function requireAdapter() {
-    if (!_adapter) throw new StoreError('no-folder', 'Choose the store folder first.');
-    return _adapter;
+    const a = _override || _reader;
+    if (!a) throw new StoreError('not-configured', "The shared store isn't set up yet. An admin needs to finish the one-time setup (see Publishing settings).");
+    return a;
+  }
+  function requireWriter() {
+    if (_override) return _override;
+    if (!_cfg.repo || !REPO_RE.test(_cfg.repo)) throw new StoreError('not-configured', 'Publishing settings are incomplete: enter the data repository as owner/name.');
+    if (!_token) throw new StoreError('no-token', 'Add your GitHub token in Publishing settings first.');
+    if (!_writer) _writer = githubWriter();
+    return _writer;
   }
   function requireAdmin() {
     if (!_admin) throw new StoreError('not-admin', 'Admin login required.');
@@ -189,91 +152,237 @@
     return n === 'NotAllowedError' || n === 'NoModificationAllowedError' || n === 'SecurityError' ||
       /read-only|EACCES|EPERM|EROFS|not allowed/i.test(m);
   }
-  /** Run a write operation; turn "not allowed" failures into the friendly Viewer message. */
+  /** Run a write operation; turn "not allowed" failures into the friendly read-only message. */
   async function guardedWrite(fn) {
     try { return await fn(); }
     catch (e) { if (e instanceof StoreError) throw e; if (isWriteDenied(e)) throw new StoreError('read-only', READ_ONLY_MSG); throw e; }
   }
 
-  /* ---------- IndexedDB: remember the chosen folder ---------- */
-  function idb() {
-    return new Promise((resolve, reject) => {
-      if (typeof indexedDB === 'undefined') { reject(new Error('no indexedDB')); return; }
-      const req = indexedDB.open('cla_store', 1);
-      req.onupgradeneeded = () => req.result.createObjectStore('handles');
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+  /* ---------- reading (everyone) ---------- */
+  /** GET text; 404 → null. Retries a few times on network errors / 429 / 5xx. */
+  async function httpGetText(url) {
+    let last = null;
+    for (let i = 0; i < 3; i++) {
+      let res;
+      try { res = await _fetch(withCb(url), { cache: 'no-store' }); }
+      catch (e) { last = e; await sleep(300 * (i + 1)); continue; }
+      if (res.status === 404) return null;
+      if (res.ok) return await res.text();
+      if (res.status === 429 || res.status >= 500) { last = new Error(`HTTP ${res.status}`); await sleep(600 * (i + 1)); continue; }
+      throw new StoreError('http', `Could not load ${url.split('/').slice(-2).join('/')} (HTTP ${res.status}).`);
+    }
+    throw new StoreError('network', `Could not reach the store (${(last && last.message) || 'network error'}). Check your internet connection and press Refresh.`);
+  }
+  function readBase() {
+    let b = _cfg.dataBaseUrl || (_cfg.repo ? `${_cfg.rawBase}/${_cfg.repo}/${encPath(_cfg.branch || 'main')}/` : '');
+    if (b && !b.endsWith('/')) b += '/';
+    return b;
+  }
+  /**
+   * Reader for everyone (no login). raw.githubusercontent.com keeps every file for ~5 minutes and ignores ?query
+   * strings, so reading "the main branch" can show yesterday's data right after an admin published. To avoid that,
+   * a GitHub repo is read at an exact COMMIT: the latest commit id is looked up first (one tiny API call), then every
+   * file is fetched from that commit's own URL — those never go stale and the manifest + day files always match.
+   * If the lookup fails (e.g. GitHub's anonymous rate limit), it quietly falls back to the branch URL.
+   * `pin` = { repo, branch } for a GitHub repo, or null for a plain base URL.
+   */
+  function remoteReader(base, pin) {
+    let head = null, headAt = 0, known = null;                // head = commit id currently read; known = our own latest publish
+    const HEAD_TTL = 60 * 1000, KNOWN_TTL = 90 * 1000;
+    const pinned = sha => `${_cfg.rawBase}/${pin.repo}/${sha}/`;
+    const make = root => ({
+      remote: true,
+      async readText(path) { return httpGetText(root() + encPath(path)); },
+      async exists(path) { return (await this.readText(path)) !== null; }
     });
-  }
-  async function idbGetHandle() {
-    try {
-      const db = await idb();
-      return await new Promise(res => {
-        const r = db.transaction('handles', 'readonly').objectStore('handles').get('storeDir');
-        r.onsuccess = () => res(r.result || null); r.onerror = () => res(null);
-      });
-    } catch (_) { return null; }
-  }
-  async function idbPutHandle(h) {
-    try {
-      const db = await idb();
-      await new Promise(res => {
-        const r = db.transaction('handles', 'readwrite').objectStore('handles').put(h, 'storeDir');
-        r.onsuccess = () => res(); r.onerror = () => res();
-      });
-    } catch (_) { /* remembering the folder is best-effort */ }
+    const r = make(() => (pin && head) ? pinned(head) : base);
+    /** Find the newest commit. `force` skips the 60-second memory (Refresh button). Returns the commit id or null. */
+    r.resolveHead = async function (force) {
+      if (!pin) return null;
+      const now = Date.now();
+      if (known && now < known.until) { head = known.sha; headAt = now; return head; }
+      if (!force && head && now - headAt < HEAD_TTL) return head;
+      try {
+        const res = await _fetch(`${_cfg.apiBase}/repos/${pin.repo}/commits/${encodeURIComponent(pin.branch)}`, {
+          cache: 'no-store',
+          headers: { Accept: 'application/vnd.github.sha', ...(_token ? { Authorization: `Bearer ${_token}` } : {}) }
+        });
+        if (res.ok) {
+          const t = (await res.text()).trim();
+          if (/^[0-9a-f]{40}$/i.test(t)) { head = t; headAt = Date.now(); return head; }
+        }
+      } catch (_) { /* fall back below */ }
+      head = null; headAt = 0;
+      return null;
+    };
+    r.head = () => head;
+    /** The admin's own publish: show it right away instead of waiting for GitHub's caches. */
+    r.note = sha => { if (pin && /^[0-9a-f]{40}$/i.test(sha || '')) { known = { sha, until: Date.now() + KNOWN_TTL }; head = sha; headAt = Date.now(); } };
+    /** A reader fixed to one commit (so a report reads exactly the data its manifest described). */
+    r.at = sha => (pin && sha) ? make(() => pinned(sha)) : r;
+    return r;
   }
 
-  /* ---------- folder selection / permission ---------- */
-  function isSupported() { return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'; }
+  /* ---------- publishing (admins) ---------- */
+  async function ghError(res, what) {
+    let msg = '';
+    try { msg = (await res.json()).message || ''; } catch (_) { /* not json */ }
+    const repo = _cfg.repo;
+    if (res.status === 401) return new StoreError('bad-token', "GitHub didn't accept the token (wrong or expired). Open Publishing settings and paste a new one.");
+    if (res.status === 403) {
+      if (res.headers && res.headers.get && res.headers.get('x-ratelimit-remaining') === '0') return new StoreError('rate-limit', 'GitHub is rate-limiting requests right now. Wait a few minutes and try again.');
+      return new StoreError('no-write', `The token isn't allowed to ${what || 'change'} ${repo}. It needs access to that repository with "Contents: Read and write".`);
+    }
+    if (res.status === 404) return new StoreError('no-repo', `GitHub can't find ${repo}, or the token has no access to it. Check the name and token in Publishing settings.`);
+    if (res.status === 409 || (res.status === 422 && /fast.?forward/i.test(msg))) return new StoreError('conflict', 'Someone else published at the same moment.');
+    return new StoreError('github', `GitHub said: ${msg || ('HTTP ' + res.status)}${what ? ` (while trying to ${what})` : ''}`);
+  }
 
-  /** On page load: reconnect to the remembered folder. state: none | needs-permission | ready | unsupported */
-  async function restoreFolder() {
-    if (_adapter) return { state: 'ready', name: _folderName };
-    if (!isSupported()) return { state: 'unsupported' };
-    const h = await idbGetHandle();
-    if (!h) return { state: 'none' };
-    try {
-      if ((await h.queryPermission({ mode: 'read' })) === 'granted') { setFolder(h); return { state: 'ready', name: h.name }; }
-    } catch (_) { return { state: 'none' }; }
-    _pendingHandle = h;
-    return { state: 'needs-permission', name: h.name };
+  /** Write adapter: reads are authenticated and fresh; writes are buffered and pushed by flush() as ONE commit. */
+  function githubWriter() {
+    const repo = _cfg.repo, branch = _cfg.branch || 'main';
+    const pending = new Map();                          // path → {content} | {del:true}
+    async function api(method, path, body, accept) {
+      try {
+        return await _fetch(`${_cfg.apiBase}${path}`, {
+          method, cache: 'no-store',
+          headers: {
+            Authorization: `Bearer ${_token}`, Accept: accept || 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+            ...(body ? { 'Content-Type': 'application/json' } : {})
+          },
+          body: body ? JSON.stringify(body) : undefined
+        });
+      } catch (e) { throw new StoreError('network', `Could not reach GitHub (${e.message || 'network error'}). Check your internet connection.`); }
+    }
+    const must = async (res, what) => { if (!res.ok) throw await ghError(res, what); return res.json(); };
+    const refPath = `/repos/${repo}/git/refs/heads/${encPath(branch)}`;
+    return {
+      remote: true,
+      async readText(path) {
+        if (pending.has(path)) { const v = pending.get(path); return v.del ? null : v.content; }
+        const res = await api('GET', `/repos/${repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`, null, 'application/vnd.github.raw+json');
+        if (res.status === 404) return null;
+        if (!res.ok) throw await ghError(res, 'read');
+        return res.text();
+      },
+      async exists(path) { return (await this.readText(path)) !== null; },
+      async writeText(path, text) { pending.set(path, { content: text }); },
+      async remove(path) { pending.set(path, { del: true }); },
+      /** Checks the token can reach the repo and (when GitHub says) push to it. No change is made. */
+      async probeWrite() {
+        const res = await api('GET', `/repos/${repo}`);
+        const info = await must(res, 'access');
+        if (info && info.permissions && info.permissions.push === false) throw new StoreError('no-write', `The token can read ${repo} but not change it. It needs "Contents: Read and write".`);
+        return info;
+      },
+      async flush(message) {
+        if (!pending.size) return null;
+        let res = await api('GET', `/repos/${repo}/git/ref/heads/${encPath(branch)}`);
+        if (res.status === 404 || res.status === 409) throw new StoreError('no-branch', `Branch “${branch}” doesn't exist in ${repo}. Create the repository with a README so it has a ${branch} branch.`);
+        const head = (await must(res, 'read the branch')).object.sha;
+        const baseTree = (await must(await api('GET', `/repos/${repo}/git/commits/${head}`), 'read the branch')).tree.sha;
+        const dels = [...pending].filter(([, v]) => v.del).map(([p]) => p);
+        let existing = new Set();
+        if (dels.length) existing = new Set((await must(await api('GET', `/repos/${repo}/git/trees/${baseTree}?recursive=1`), 'read the store')).tree.map(t => t.path));
+        const tree = [];
+        for (const [p, v] of pending) {
+          if (v.del) { if (existing.has(p)) tree.push({ path: p, mode: '100644', type: 'blob', sha: null }); }
+          else tree.push({ path: p, mode: '100644', type: 'blob', content: v.content });
+        }
+        if (!tree.length) { pending.clear(); return null; }
+        const newTree = (await must(await api('POST', `/repos/${repo}/git/trees`, { base_tree: baseTree, tree }), 'write')).sha;
+        const commit = (await must(await api('POST', `/repos/${repo}/git/commits`, { message, tree: newTree, parents: [head] }), 'write')).sha;
+        res = await api('PATCH', refPath, { sha: commit, force: false });
+        if (!res.ok) throw await ghError(res, 'write');
+        pending.clear();
+        if (_reader && _reader.note) _reader.note(commit);        // our own page shows the new data immediately
+        return { commit };
+      },
+      discard() { pending.clear(); }
+    };
   }
-  /** Must be called from a click (user gesture): the one-click "Reconnect store". */
-  async function reconnect() {
-    if (!_pendingHandle) return restoreFolder();
-    const perm = await _pendingHandle.requestPermission({ mode: 'read' });
-    if (perm !== 'granted') return { state: 'needs-permission', name: _pendingHandle.name };
-    setFolder(_pendingHandle);
-    return { state: 'ready', name: _folderName };
-  }
-  async function pickFolder() {
-    if (!isSupported()) throw new StoreError('unsupported', 'This browser cannot open folders. Use Chrome or Edge on a desktop.');
-    let h;
-    try { h = await window.showDirectoryPicker({ id: 'cla-store', mode: 'read' }); }
-    catch (e) { if (e && e.name === 'AbortError') return { state: 'cancelled' }; throw e; }
-    await idbPutHandle(h);
-    setFolder(h);
-    return { state: 'ready', name: h.name };
-  }
-  /** Admin actions call this first, straight from the click handler (needs user activation). */
-  async function ensureWritable() {
-    requireAdapter();
-    if (_handle) {
-      let perm = 'prompt';
-      try { perm = await _handle.queryPermission({ mode: 'readwrite' }); } catch (_) { /* fall through */ }
-      if (perm !== 'granted') {
-        try { perm = await _handle.requestPermission({ mode: 'readwrite' }); } catch (_) { perm = 'denied'; }
-        if (perm !== 'granted') throw new StoreError('write-denied', 'Write access to the store folder was not granted.');
+  /** Re-run a read-modify-write when someone else published in between (idempotent merges make this safe). */
+  async function withConflictRetry(a, fn) {
+    for (let i = 0; ; i++) {
+      try { return await fn(); }
+      catch (e) {
+        if (a.discard) a.discard();
+        if (e && e.code === 'conflict' && i < 3) { await sleep(400 * (i + 1)); continue; }
+        throw e;
       }
     }
-    await guardedWrite(() => _adapter.probeWrite());
+  }
+
+  /* ---------- settings / start-up ---------- */
+  function status() {
+    return {
+      configured: !!(_override || _reader), canPublish: !!(_override || (_cfg.repo && REPO_RE.test(_cfg.repo) && _token)),
+      repo: _cfg.repo, branch: _cfg.branch, hasToken: !!_token, source: _cfg.dataBaseUrl ? 'url' : (_cfg.repo ? 'repo' : 'none'), cfgSource: _cfgSource
+    };
+  }
+  function rebuild() {
+    _writer = null; _reader = null;
+    const base = readBase();
+    if (base) _reader = remoteReader(base, (!_cfg.dataBaseUrl && _cfg.repo && REPO_RE.test(_cfg.repo)) ? { repo: _cfg.repo, branch: _cfg.branch || 'main' } : null);
+  }
+  /**
+   * Called once on page load. Settings come from store-config.json (next to index.html, committed with the site)
+   * and, for admins, from this browser's own saved Publishing settings.
+   */
+  async function init(opts) {
+    opts = opts || {};
+    if (opts.fetch) _fetch = opts.fetch;
+    const fileCfg = {};
+    try {
+      const txt = opts.configUrl === null ? null : await httpGetText(opts.configUrl || 'store-config.json');
+      if (txt) {
+        const j = JSON.parse(txt);
+        for (const k of ['repo', 'branch', 'dataBaseUrl']) if (typeof j[k] === 'string' && j[k].trim()) fileCfg[k] = j[k].trim();
+        if (Object.keys(fileCfg).length) _cfgSource = 'file';
+      }
+    } catch (_) { /* no / bad config file → fall through */ }
+    const local = lsGet() || {};
+    _token = typeof local.token === 'string' ? local.token : '';
+    _cfg = { ...DEFAULT_CFG, ...(opts.defaults || {}), ...fileCfg };
+    if (local.repo && REPO_RE.test(local.repo)) { _cfg.repo = local.repo; _cfgSource = 'local'; }
+    if (local.branch) _cfg.branch = local.branch;
+    rebuild();
+    return status();
+  }
+  /** Direct configuration (tests / embedding). */
+  function configure(o) {
+    o = o || {};
+    if (o.fetch) _fetch = o.fetch;
+    for (const k of ['repo', 'branch', 'dataBaseUrl', 'apiBase', 'rawBase']) if (o[k] !== undefined) _cfg[k] = o[k];
+    if (o.token !== undefined) _token = o.token;
+    rebuild();
+    return status();
+  }
+  function getSettings() { return { repo: _cfg.repo, branch: _cfg.branch, hasToken: !!_token, fileRepo: _cfgSource === 'file' ? _cfg.repo : '' }; }
+  /** Save this browser's Publishing settings. token === '' keeps the saved token; token === null removes it. */
+  function saveSettings(s) {
+    const repo = String((s && s.repo) || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+    const branch = String((s && s.branch) || '').trim() || 'main';
+    if (!REPO_RE.test(repo)) throw new StoreError('bad-repo', 'Enter the data repository as owner/name, for example myorg/clanalysis-data.');
+    const token = s && s.token === null ? '' : (s && s.token ? String(s.token).trim() : _token);
+    _token = token; _cfg.repo = repo; _cfg.branch = branch; _cfgSource = 'local';
+    const saved = lsSet({ repo, branch, token });
+    rebuild();
+    return { saved, ...status() };
+  }
+  function clearToken() { _token = ''; const l = lsGet() || {}; lsSet({ repo: l.repo || _cfg.repo, branch: l.branch || _cfg.branch, token: '' }); rebuild(); }
+  /** The one line everyone else's page needs (commit it as store-config.json next to index.html). */
+  function configFileText() { return JSON.stringify({ repo: _cfg.repo, branch: _cfg.branch }, null, 2) + '\n'; }
+  /** Admin actions call this first: confirms there is a token and that it can reach the repo. */
+  async function ensureWritable() {
+    const a = requireWriter();
+    await guardedWrite(() => a.probeWrite());
     return true;
   }
-  /** For tests / embedding: use any adapter object instead of a browser folder. */
-  function useAdapter(adapter, name) { _adapter = adapter; _handle = null; _folderName = name || 'test-store'; }
-  function isConnected() { return !!_adapter; }
-  function folderName() { return _folderName; }
+  /** For tests / embedding: use any adapter object (reads AND writes) instead of the network. */
+  function useAdapter(adapter, name) { _override = adapter; _storeName = name || 'test-store'; }
+  function isConnected() { return !!(_override || _reader); }
+  function storeName() { return _storeName || _cfg.repo || ''; }
 
   /* ---------- admin ---------- */
   async function sha256Hex(str) {
@@ -305,21 +414,28 @@
   /* ---------- manifest + summary ---------- */
   const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.csv$/;
 
-  /** Read manifest.json and reconcile it with what is really in daily/ (TrueSync can lag or conflict). */
-  async function loadManifest() {
-    const a = requireAdapter();
+  /**
+   * Read manifest.json (a missing one = an empty store). Adapters that can list a folder (tests / fs) also have the
+   * manifest reconciled with what is really in daily/; over HTTP the manifest is trusted (commits are atomic).
+   */
+  async function loadManifest(adapterOpt, force) {
+    const a = adapterOpt || requireAdapter();
+    if (!adapterOpt && typeof a.resolveHead === 'function') await a.resolveHead(!!force);     // newest commit (see remoteReader)
     let m = null;
     const txt = await a.readText(MANIFEST);
     if (txt && txt.trim()) { try { m = JSON.parse(txt); } catch (_) { m = null; } }
     if (!m || typeof m !== 'object' || !m.days || typeof m.days !== 'object') m = { version: 1, days: {} };
-    const present = new Set();
-    for (const n of await a.list(DAILY_DIR)) { const mm = DAY_FILE_RE.exec(n); if (mm) present.add(mm[1]); }
-    for (const k of Object.keys(m.days)) if (!present.has(k)) delete m.days[k];
-    for (const k of present) {
-      if (m.days[k]) continue;
-      const mp = parseDay(await a.readText(`${DAILY_DIR}/${k}.csv`));      // recovered from the file itself
-      m.days[k] = { students: mp.size, mau: countMau(mp), rawRows: 0, files: [], minTs: null, maxTs: null, updatedAt: null, recovered: true };
+    if (typeof a.list === 'function') {
+      const present = new Set();
+      for (const n of await a.list(DAILY_DIR)) { const mm = DAY_FILE_RE.exec(n); if (mm) present.add(mm[1]); }
+      for (const k of Object.keys(m.days)) if (!present.has(k)) delete m.days[k];
+      for (const k of present) {
+        if (m.days[k]) continue;
+        const mp = parseDay(await a.readText(`${DAILY_DIR}/${k}.csv`));      // recovered from the file itself
+        m.days[k] = { students: mp.size, mau: countMau(mp), rawRows: 0, files: [], minTs: null, maxTs: null, updatedAt: null, recovered: true };
+      }
     }
+    if (a.head) Object.defineProperty(m, '_head', { value: a.head(), enumerable: false, configurable: true });     // which commit this manifest came from
     return m;
   }
 
@@ -337,8 +453,8 @@
       ...base
     };
   }
-  async function getSummary() {
-    const manifest = await loadManifest();
+  async function getSummary(opts) {
+    const manifest = await loadManifest(null, !!(opts && opts.force));
     return { manifest, summary: summarize(manifest) };
   }
   function formatLabel(s) {
@@ -459,36 +575,42 @@
   /** Merge parsed days into the store files + manifest (idempotent: earliest timestamps win). */
   async function commitParsed(parsed, opts) {
     requireAdmin();
-    const a = requireAdapter();
-    const manifest = await loadManifest();
-    const guard = checkMonthGuard(parsed, manifest);
-    if (guard.warn && !(opts && opts.confirmMixedMonths)) return { needsConfirm: true, guard };
-    await guardedWrite(() => a.probeWrite());
+    const a = requireWriter();
+    try {
+      return await withConflictRetry(a, async () => {
+        const manifest = await loadManifest(a);                    // fresh (authenticated) read
+        const guard = checkMonthGuard(parsed, manifest);
+        if (guard.warn && !(opts && opts.confirmMixedMonths)) return { needsConfirm: true, guard };
+        await guardedWrite(() => a.probeWrite());
 
-    const nowIso = new Date(Store._now()).toISOString();
-    const dup = new Set();
-    const results = [];
-    for (const day of [...parsed.days.keys()].sort()) {
-      const merged = parseDay(await a.readText(`${DAILY_DIR}/${day}.csv`));
-      for (const [email, v] of parsed.days.get(day)) mergeEntry(merged, email, v.mau, v.login);
-      await guardedWrite(() => a.writeText(`${DAILY_DIR}/${day}.csv`, serializeDay(merged)));
+        const nowIso = new Date(Store._now()).toISOString();
+        const dup = new Set();
+        const results = [];
+        for (const day of [...parsed.days.keys()].sort()) {
+          const merged = parseDay(await a.readText(`${DAILY_DIR}/${day}.csv`));
+          for (const [email, v] of parsed.days.get(day)) mergeEntry(merged, email, v.mau, v.login);
+          await guardedWrite(() => a.writeText(`${DAILY_DIR}/${day}.csv`, serializeDay(merged)));
 
-      const pd = parsed.perDay.get(day);
-      const e = manifest.days[day] || { students: 0, mau: 0, rawRows: 0, files: [], minTs: null, maxTs: null };
-      for (const [fname, n] of pd.rowsByFile) {
-        if (e.files.includes(fname)) dup.add(fname); else { e.files.push(fname); e.rawRows = (e.rawRows || 0) + n; }
-      }
-      e.students = merged.size; e.mau = countMau(merged);
-      e.minTs = minTs(e.minTs, pd.minTs); e.maxTs = e.maxTs == null ? pd.maxTs : Math.max(e.maxTs, pd.maxTs);
-      e.updatedAt = nowIso; delete e.recovered;
-      manifest.days[day] = e;
-      results.push({ day, students: e.students, mau: e.mau, files: pd.rowsByFile.size, rows: [...pd.rowsByFile.values()].reduce((x, y) => x + y, 0) });
-    }
-    manifest.version = 1;
-    manifest.lastAddedAt = nowIso;
-    manifest.lastAddBatch = parsed.fileNames.slice();
-    await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify(manifest, null, 1)));
-    return { ok: true, days: results, duplicateFiles: [...dup], perFile: parsed.perFile, guard };
+          const pd = parsed.perDay.get(day);
+          const e = manifest.days[day] || { students: 0, mau: 0, rawRows: 0, files: [], minTs: null, maxTs: null };
+          for (const [fname, n] of pd.rowsByFile) {
+            if (e.files.includes(fname)) dup.add(fname); else { e.files.push(fname); e.rawRows = (e.rawRows || 0) + n; }
+          }
+          e.students = merged.size; e.mau = countMau(merged);
+          e.minTs = minTs(e.minTs, pd.minTs); e.maxTs = e.maxTs == null ? pd.maxTs : Math.max(e.maxTs, pd.maxTs);
+          e.updatedAt = nowIso; delete e.recovered;
+          manifest.days[day] = e;
+          results.push({ day, students: e.students, mau: e.mau, files: pd.rowsByFile.size, rows: [...pd.rowsByFile.values()].reduce((x, y) => x + y, 0) });
+        }
+        manifest.version = 1;
+        manifest.lastAddedAt = nowIso;
+        manifest.lastAddBatch = parsed.fileNames.slice();
+        await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify(manifest, null, 1)));
+        // Remote store: everything above was buffered; this publishes it as ONE commit (all-or-nothing).
+        if (typeof a.flush === 'function') await guardedWrite(() => a.flush(`Add ${results.length} day(s): ${compressDays(results.map(r => r.day))} (${parsed.fileNames.length} file(s))`));
+        return { ok: true, days: results, duplicateFiles: [...dup], perFile: parsed.perFile, guard, published: typeof a.flush === 'function' };
+      });
+    } finally { if (a.discard) a.discard(); }
   }
 
   /**
@@ -497,7 +619,6 @@
    */
   async function ingestLogFiles(files, onProgress, opts) {
     requireAdmin();
-    requireAdapter();
     const parsed = await parseLogFiles(files, onProgress);
     if (!parsed.days.size) throw new StoreError('no-rows', 'No usable rows found (need Action, Date and User Email columns).');
     const res = await commitParsed(parsed, opts);
@@ -508,39 +629,59 @@
   /* ---------- reset (admin) ---------- */
   async function resetStore() {
     requireAdmin();
-    const a = requireAdapter();
-    await guardedWrite(() => a.probeWrite());
-    const manifest = await loadManifest();
-    const keys = Object.keys(manifest.days).sort();
-    if (!keys.length) throw new StoreError('empty', 'The store is already empty — nothing to reset.');
-    let folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}`, n = 2;
-    while (await a.dirExists(folder)) folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}_${n++}`;
-    // 1) copy everything to the archive, 2) verify, 3) only then remove the originals.
-    for (const k of keys) {
-      const t = await a.readText(`${DAILY_DIR}/${k}.csv`);
-      if (t != null) await guardedWrite(() => a.writeText(`${folder}/${DAILY_DIR}/${k}.csv`, t));
-    }
-    await guardedWrite(() => a.writeText(`${folder}/${MANIFEST}`, JSON.stringify(manifest, null, 1)));
-    for (const k of keys) {
-      if ((await a.exists(`${DAILY_DIR}/${k}.csv`)) && !(await a.exists(`${folder}/${DAILY_DIR}/${k}.csv`)))
-        throw new StoreError('archive-failed', `Could not archive ${k}; nothing was deleted.`);
-    }
-    for (const k of keys) await guardedWrite(() => a.remove(`${DAILY_DIR}/${k}.csv`));
-    await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify({ version: 1, days: {}, resetAt: new Date(Store._now()).toISOString(), archivedTo: folder }, null, 1)));
-    return { archivedTo: folder, dayCount: keys.length, firstDay: keys[0], lastDay: keys[keys.length - 1], studentDayRows: summarize(manifest).studentDayRows };
+    const a = requireWriter();
+    try {
+      return await withConflictRetry(a, async () => {
+        await guardedWrite(() => a.probeWrite());
+        const manifest = await loadManifest(a);
+        const keys = Object.keys(manifest.days).sort();
+        if (!keys.length) throw new StoreError('empty', 'The store is already empty — nothing to reset.');
+        let folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}`, n = 2;
+        while (await a.exists(`${folder}/${MANIFEST}`)) folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}_${n++}`;
+        // 1) copy everything to the archive, 2) verify, 3) only then remove the originals.
+        for (const k of keys) {
+          const t = await a.readText(`${DAILY_DIR}/${k}.csv`);
+          if (t != null) await guardedWrite(() => a.writeText(`${folder}/${DAILY_DIR}/${k}.csv`, t));
+        }
+        await guardedWrite(() => a.writeText(`${folder}/${MANIFEST}`, JSON.stringify(manifest, null, 1)));
+        for (const k of keys) {
+          if ((await a.exists(`${DAILY_DIR}/${k}.csv`)) && !(await a.exists(`${folder}/${DAILY_DIR}/${k}.csv`)))
+            throw new StoreError('archive-failed', `Could not archive ${k}; nothing was deleted.`);
+        }
+        for (const k of keys) await guardedWrite(() => a.remove(`${DAILY_DIR}/${k}.csv`));
+        await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify({ version: 1, days: {}, resetAt: new Date(Store._now()).toISOString(), archivedTo: folder }, null, 1)));
+        // Remote store: publish the whole move as ONE commit (the archive and the empty store appear together).
+        if (typeof a.flush === 'function') await guardedWrite(() => a.flush(`Archive ${keys[0].slice(0, 7)} to ${folder} and reset the store`));
+        return { archivedTo: folder, dayCount: keys.length, firstDay: keys[0], lastDay: keys[keys.length - 1], studentDayRows: summarize(manifest).studentDayRows };
+      });
+    } finally { if (a.discard) a.discard(); }
   }
 
   /* ---------- read a range ---------- */
   /** Earliest MAU / login timestamp per student across the stored days in [fromKey, toKey]. */
   async function loadActivityForRange(fromKey, toKey, manifestOpt) {
-    const a = requireAdapter();
+    const a0 = requireAdapter();
     const manifest = manifestOpt || await loadManifest();
+    const a = (manifest._head && a0.at) ? a0.at(manifest._head) : a0;      // read the same commit the manifest came from
     const firstMau = new Map(), firstLogin = new Map(), missingDays = [], storedDays = [];
-    for (const k of dayRange(fromKey, toKey)) {
+    const days = dayRange(fromKey, toKey);
+    const wanted = days.filter(k => manifest.days[k]);
+    const texts = new Map();
+    let next = 0;                                              // small worker pool: ≤ 6 downloads at a time
+    const worker = async () => {
+      while (next < wanted.length) {
+        const k = wanted[next++];
+        try { texts.set(k, await a.readText(`${DAILY_DIR}/${k}.csv`)); }
+        catch (e) {
+          if (e instanceof StoreError) throw e;
+          throw new StoreError('read-failed', `Could not read ${k}.csv (${e.message || e.name}).`);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(6, wanted.length) }, worker));
+    for (const k of days) {
       if (!manifest.days[k]) { missingDays.push(k); continue; }
-      let txt;
-      try { txt = await a.readText(`${DAILY_DIR}/${k}.csv`); }
-      catch (e) { throw new StoreError('read-failed', `Could not read ${k}.csv (${e.message || e.name}). If you use WorkDrive TrueSync, make sure the store folder is set to "available offline".`); }
+      const txt = texts.get(k);
       if (txt == null) { missingDays.push(k); continue; }
       storedDays.push(k);
       for (const [email, v] of parseDay(txt)) {
@@ -662,8 +803,8 @@
   const Store = {
     StoreError, ADMIN_HASHES,
     _now: () => Date.now(),                    // overridable clock (tests)
-    // folder
-    isSupported, restoreFolder, reconnect, pickFolder, ensureWritable, useAdapter, isConnected, folderName,
+    // where the store lives / publishing settings
+    init, configure, getSettings, saveSettings, clearToken, configFileText, ensureWritable, useAdapter, isConnected, storeName, status,
     // admin
     verifyAdminPassword, adminLogin, exitAdmin, isAdmin,
     // data

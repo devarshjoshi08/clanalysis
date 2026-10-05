@@ -1,8 +1,8 @@
 diff --git a/css/styles.css b/css/styles.css
-index 2f136e6..521cf9b 100644
+index 2f136e6..e4c8997 100644
 --- a/css/styles.css
 +++ b/css/styles.css
-@@ -326,6 +326,100 @@ html, body {
+@@ -326,6 +326,112 @@ html, body {
    margin-top: 40px;
  }
  
@@ -95,6 +95,18 @@ index 2f136e6..521cf9b 100644
 +.dlg-msg.error { color: var(--danger); }
 +.dlg-msg.info { color: var(--text-muted); }
 +
++/* Publishing settings dialog */
++.field.stacked { display: flex; flex-direction: column; align-items: stretch; gap: 0; margin: 0 0 10px 0; font-size: 12px; }
++.field.stacked input { font-weight: 400; }
++.cfg-box { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 4px; }
++.cfg-box.ok { border-style: solid; border-color: var(--success); }
++.cfg-box p { margin: 0 0 6px 0; font-size: 12px; color: var(--text-muted); }
++.cfg-box.ok p { color: var(--success); margin: 0; }
++.cfg-box.ok .cfg-text { display: none; }
++.cfg-text { margin: 0; padding: 8px 10px; background: var(--surface-3); border-radius: 4px; font-size: 12px; user-select: all; white-space: pre-wrap; }
++#addSetup { margin-bottom: 12px; }
++.admin-on .link-btn { margin-left: 10px; }
++
 +@media (max-width: 640px) {
 +  .admin-bar { margin-left: 0; width: 100%; }
 +  .cov-grid { grid-template-columns: repeat(10, 20px); }
@@ -104,10 +116,18 @@ index 2f136e6..521cf9b 100644
  @media (max-width: 640px) {
    .content { padding: 20px 16px; }
 diff --git a/index.html b/index.html
-index aa734a5..10e125b 100644
+index aa734a5..b47584d 100644
 --- a/index.html
 +++ b/index.html
-@@ -17,6 +17,7 @@
+@@ -10,13 +10,14 @@
+ 
+ <header class="app-header">
+   <h1>Content Logs Analyzer</h1>
+-  <p class="subtitle">Browser version &mdash; processes files locally, no upload to any server</p>
++  <p class="subtitle">Browser version &mdash; your files are processed locally in your browser</p>
+ </header>
+ 
+ <nav class="tabs">
    <button class="tab-btn active" data-tab="emails">Email Extractor</button>
    <button class="tab-btn" data-tab="adobe">Adobe Data Preparation</button>
    <button class="tab-btn" data-tab="paAdobe">Process + Adobe Data Preparation</button>
@@ -115,7 +135,7 @@ index aa734a5..10e125b 100644
  </nav>
  
  <main class="content">
-@@ -137,6 +138,102 @@
+@@ -137,6 +138,103 @@
      </div>
    </section>
  
@@ -124,19 +144,19 @@ index aa734a5..10e125b 100644
 +  <section id="tab-range" class="tab-pane">
 +    <div class="features">
 +      <strong>Date-Range MAU Report</strong>
-+      <p>Pick a date range and get the final Adobe summary for just that period &mdash; built from a shared <strong>daily store</strong> that an admin tops up with each day's content logs.</p>
++      <p>Pick a date range and get the final Adobe summary for just that period &mdash; built from a shared <strong>daily store</strong> that an admin tops up with each day's content logs. <strong>No login and no Zoho access needed</strong> to download a report.</p>
 +      <ul>
 +        <li><strong>Normal report</strong> &mdash; MAU, logins and <code>First MAU Date</code> for the dates you pick.</li>
 +        <li><strong>Report with Repeated</strong> &mdash; also pick a look-back start. Students who were already MAU in the look-back window show as <strong>Repeated</strong> (not New MAU).</li>
 +        <li>Days follow India time (IST). The store label below always shows which dates are stored.</li>
 +      </ul>
-+      <p class="muted">Needs Chrome or Edge over http/https, and the <strong>Zoho WorkDrive TrueSync</strong> folder <code>Adobe MAU Store</code> (set to &ldquo;available offline&rdquo;). You pick that folder once; this page remembers it.</p>
++      <p class="muted">The store loads by itself when this page opens. Only admins can add days or reset it (they log in below).</p>
 +    </div>
 +
 +    <!-- Card 1: data store -->
 +    <div class="card" id="storeCard">
-+      <div class="card-title">Data store <span id="storeFolderName" class="card-sub"></span></div>
-+      <div id="storeLabel" class="store-label">Choose the store folder to begin.</div>
++      <div class="card-title">Data store <span id="storeSource" class="card-sub"></span></div>
++      <div id="storeLabel" class="store-label">Reading the store…</div>
 +      <div id="storeCoverage" class="coverage"></div>
 +      <div id="storeLegend" class="coverage-legend hidden">
 +        <span><i class="cov-cell stored"></i> stored</span>
@@ -144,12 +164,12 @@ index aa734a5..10e125b 100644
 +        <span><i class="cov-cell out"></i> outside stored dates</span>
 +      </div>
 +      <div class="actions card-actions">
-+        <button id="storeChoose" class="btn btn-secondary">Choose store folder</button>
-+        <button id="storeReconnect" class="btn btn-primary hidden">Reconnect store</button>
 +        <button id="storeRefresh" class="btn btn-secondary" disabled>Refresh</button>
 +        <span class="admin-bar">
 +          <button id="adminLoginBtn" class="link-btn">Admin login</button>
-+          <span id="adminOn" class="admin-on hidden">Admin mode on <button id="adminExitBtn" class="link-btn">Exit admin</button></span>
++          <span id="adminOn" class="admin-on hidden">Admin mode on
++            <button id="publishBtn" class="link-btn">Publishing settings</button>
++            <button id="adminExitBtn" class="link-btn">Exit admin</button></span>
 +          <button id="resetStoreBtn" class="link-btn danger hidden">Reset store (admin)</button>
 +        </span>
 +      </div>
@@ -159,7 +179,8 @@ index aa734a5..10e125b 100644
 +    <!-- Card 2: add daily logs (admin only) -->
 +    <div class="card hidden" id="addCard">
 +      <div class="card-title">Add daily logs <span class="card-sub">admin</span></div>
-+      <p class="muted card-note">Select one or many raw Content-Log CSVs (any mix of days). Each row is filed under its own IST date; adding the same file twice never double-counts.</p>
++      <p class="muted card-note">Select one or many raw Content-Log CSVs (any mix of days). Each row is filed under its own IST date; adding the same file twice never double-counts. Adding publishes to the shared store, so everyone sees it.</p>
++      <div id="addSetup" class="msg warn hidden">Publishing isn&rsquo;t set up in this browser yet. <button id="addSetupBtn" class="link-btn" type="button">Open Publishing settings</button></div>
 +      <div class="actions">
 +        <label class="btn btn-primary">
 +          Select Content-Log Files
@@ -218,7 +239,7 @@ index aa734a5..10e125b 100644
  </main>
  
  <!-- Modal for summary dialogs -->
-@@ -154,6 +251,23 @@
+@@ -154,8 +252,25 @@
    </div>
  </div>
  
@@ -240,9 +261,12 @@ index aa734a5..10e125b 100644
 +</div>
 +
  <footer class="app-footer">
-   <span>All processing happens in your browser. Files never leave your machine.</span>
+-  <span>All processing happens in your browser. Files never leave your machine.</span>
++  <span>All processing happens in your browser. Your files never leave your machine &mdash; the one exception is the Date-Range store: when an admin adds daily logs, only each student&rsquo;s email and first-activity times are published to it.</span>
  </footer>
-@@ -165,6 +279,7 @@
+ 
+ <!-- Libraries via CDN -->
+@@ -165,6 +280,7 @@
  
  <!-- App scripts -->
  <script src="js/processing.js"></script>
@@ -251,10 +275,10 @@ index aa734a5..10e125b 100644
  
  </body>
 diff --git a/js/app.js b/js/app.js
-index 5a22dd1..f5eb79e 100644
+index 5a22dd1..2022d97 100644
 --- a/js/app.js
 +++ b/js/app.js
-@@ -456,4 +456,540 @@
+@@ -456,4 +456,596 @@
      }
    });
  
@@ -266,14 +290,17 @@ index 5a22dd1..f5eb79e 100644
 +    summary: null,      // Store.summarize(...) of the current store
 +    manifest: null,
 +    addList: [],        // raw content-log files queued for "Add to store"
-+    busy: false         // an add / report / reset is running
++    busy: false,        // an add / report / reset is running
++    seq: 0,             // refresh counter (ignore out-of-order answers)
++    lastRead: 0,        // when the manifest was last read (ms)
++    loadError: ''       // why the last read failed, if it did
 +  };
 +  const r$ = id => document.getElementById(id);
 +
-+  const storeFolderName = r$('storeFolderName'), storeLabel = r$('storeLabel');
-+  const storeCoverage = r$('storeCoverage'), storeLegend = r$('storeLegend');
-+  const storeChoose = r$('storeChoose'), storeReconnect = r$('storeReconnect'), storeRefresh = r$('storeRefresh');
-+  const adminLoginBtn = r$('adminLoginBtn'), adminOn = r$('adminOn'), adminExitBtn = r$('adminExitBtn');
++  const storeSource = r$('storeSource'), storeLabel = r$('storeLabel');
++  const storeCoverage = r$('storeCoverage'), storeLegend = r$('storeLegend'), storeRefresh = r$('storeRefresh');
++  const adminLoginBtn = r$('adminLoginBtn'), adminOn = r$('adminOn'), adminExitBtn = r$('adminExitBtn'), publishBtn = r$('publishBtn');
++  const addSetup = r$('addSetup'), addSetupBtn = r$('addSetupBtn');
 +  const resetStoreBtn = r$('resetStoreBtn'), storeMsg = r$('storeMsg');
 +  const addCard = r$('addCard'), addFilesInput = r$('addFiles'), addClearBtn = r$('addClear'), addRunBtn = r$('addRun');
 +  const addFileList = r$('addFileList'), addProgress = r$('addProgress'), addStatus = r$('addStatus'), addResult = r$('addResult');
@@ -354,9 +381,21 @@ index 5a22dd1..f5eb79e 100644
 +  /* ---------- store card ---------- */
 +  function setStoreMsg(text, type = '') { setStatus(storeMsg, text, type); }
 +
++  /** Errors that mean "fix the Publishing settings" (token / repository / branch). */
++  const SETTINGS_CODES = ['no-token', 'bad-token', 'no-write', 'no-repo', 'no-branch', 'bad-repo'];
++  const needsSettings = e => !!e && (SETTINGS_CODES.includes(e.code) || (e.code === 'not-configured' && Store.isAdmin()));
++
 +  function renderLabel() {
 +    storeLabel.className = 'store-label';
-+    if (!Store.isConnected()) return;
++    const st = Store.status();
++    if (!st.configured) {
++      storeLabel.classList.add('warn');
++      storeLabel.textContent = Store.isAdmin()
++        ? "The shared store isn't connected yet. Click “Publishing settings” to connect it."
++        : "The shared store isn't set up yet. Please ask an admin to finish the one-time setup.";
++      return;
++    }
++    if (T4.loadError) { storeLabel.classList.add('error'); storeLabel.textContent = `Could not read the store: ${T4.loadError}`; return; }
 +    if (!T4.summary) { storeLabel.textContent = 'Reading the store…'; return; }
 +    storeLabel.textContent = Store.formatLabel(T4.summary);
 +    storeLabel.classList.add(T4.summary.empty || T4.summary.missingDays.length ? 'warn' : 'ok');
@@ -393,89 +432,53 @@ index 5a22dd1..f5eb79e 100644
 +    }
 +  }
 +
-+  /** Re-read the store (manifest) and redraw the label, coverage strip and report checks. */
-+  async function refreshStore(quiet) {
-+    if (!Store.isConnected()) { T4.summary = null; T4.manifest = null; }
++  /** Re-read the store (manifest) and redraw the label, coverage strip and report checks. Anyone can do this — no login. */
++  async function refreshStore(quiet, force) {
++    const st = Store.status();
++    storeRefresh.disabled = !st.configured;
++    storeSource.textContent = Store.isAdmin() && st.repo ? `— ${st.repo}` : '';
++    const seq = ++T4.seq;
++    if (!st.configured) { T4.summary = null; T4.manifest = null; T4.loadError = ''; }
 +    else {
 +      try {
-+        const { manifest, summary } = await Store.getSummary();
-+        T4.manifest = manifest; T4.summary = summary;
++        const { manifest, summary } = await Store.getSummary({ force: !!force });
++        if (seq !== T4.seq) return;                       // a newer refresh is already running
++        T4.manifest = manifest; T4.summary = summary; T4.loadError = '';
++        T4.lastRead = Date.now();
 +        if (!quiet) setStoreMsg('');
 +      } catch (e) {
-+        T4.manifest = null; T4.summary = null;
-+        storeLabel.className = 'store-label error';
-+        storeLabel.textContent = `Could not read the store: ${e.message}`;
-+        renderCoverage(); renderAdmin(); renderValidation();
-+        return;
++        if (seq !== T4.seq) return;
++        T4.manifest = null; T4.summary = null; T4.loadError = e.message || String(e);
 +      }
 +    }
 +    applyDateHints();
 +    renderLabel(); renderCoverage(); renderAdmin(); renderValidation();
 +  }
 +
-+  function renderFolder(state) {
-+    const connected = state && state.state === 'ready';
-+    storeFolderName.textContent = connected ? `— folder: ${state.name}` : '';
-+    storeChoose.textContent = connected ? 'Change folder' : 'Choose store folder';
-+    storeChoose.classList.toggle('btn-primary', !connected && !(state && state.state === 'needs-permission'));
-+    storeChoose.classList.toggle('btn-secondary', connected || (state && state.state === 'needs-permission'));
-+    storeReconnect.classList.toggle('hidden', !(state && state.state === 'needs-permission'));
-+    if (state && state.state === 'needs-permission') storeReconnect.textContent = `Reconnect store (${state.name})`;
-+    storeRefresh.disabled = !connected;
-+    storeChoose.disabled = !!(state && state.state === 'unsupported');
-+    if (!connected) {
-+      storeLabel.className = 'store-label' + (state && state.state === 'unsupported' ? ' error' : ' warn');
-+      storeLabel.textContent =
-+        state && state.state === 'unsupported' ? "This browser can't open folders. Please use Chrome or Edge on a desktop (over http/https)."
-+        : state && state.state === 'needs-permission' ? `Click “Reconnect store” to reopen “${state.name}” (the browser asks once per visit).`
-+        : 'Choose the store folder to begin (the “Adobe MAU Store” folder synced by WorkDrive TrueSync).';
-+      T4.summary = null; T4.manifest = null;
-+      renderCoverage(); renderAdmin(); renderValidation();
-+    }
-+  }
-+
-+  async function onFolderState(state) {
-+    renderFolder(state);
-+    if (state.state === 'ready') await refreshStore();
-+  }
-+
-+  storeChoose.addEventListener('click', async () => {
-+    try {
-+      const st = await Store.pickFolder();
-+      if (st.state === 'cancelled') return;
-+      T4.addList = []; renderAddList();
-+      await onFolderState(st);
-+      setStoreMsg(`Store folder set to “${st.name}”. This page will remember it.`, 'success');
-+    } catch (e) { setStoreMsg(e.message, 'error'); }
-+  });
-+  storeReconnect.addEventListener('click', async () => {
-+    try { await onFolderState(await Store.reconnect()); }
-+    catch (e) { setStoreMsg(e.message, 'error'); }
-+  });
 +  storeRefresh.addEventListener('click', async () => {
 +    storeRefresh.disabled = true;
-+    await refreshStore(true);
-+    storeRefresh.disabled = !Store.isConnected();
-+    setStoreMsg('Store re-read.', 'success');
++    await refreshStore(true, true);                  // Refresh = look for the newest published data right now
++    if (Store.status().configured && T4.summary) setStoreMsg('Store re-read.', 'success');     // else the label already explains why not
 +  });
-+  // Pick up days that TrueSync delivered while the page sat in the background.
-+  window.addEventListener('focus', () => {
-+    if (Store.isConnected() && !T4.busy && !dlgState) refreshStore(true);
-+  });
++  // Pick up days an admin published while this page sat open: when the tab is opened or the window regains focus.
++  const refreshIfStale = () => { if (Store.status().configured && !T4.busy && !dlgState && Date.now() - T4.lastRead > 30000) refreshStore(true); };
++  window.addEventListener('focus', refreshIfStale);
++  document.querySelector('button[data-tab="range"]').addEventListener('click', refreshIfStale);
 +
 +  /* ---------- admin mode ---------- */
 +  function renderAdmin() {
-+    const admin = Store.isAdmin();
++    const admin = Store.isAdmin(), st = Store.status();
 +    adminLoginBtn.classList.toggle('hidden', admin);
 +    adminOn.classList.toggle('hidden', !admin);
-+    resetStoreBtn.classList.toggle('hidden', !admin);
-+    addCard.classList.toggle('hidden', !(admin && Store.isConnected()));
++    resetStoreBtn.classList.toggle('hidden', !(admin && st.configured));
++    addCard.classList.toggle('hidden', !(admin && st.configured));
++    addSetup.classList.toggle('hidden', st.canPublish);
 +    addRunBtn.disabled = T4.busy || !T4.addList.length;
 +  }
 +
 +  adminLoginBtn.addEventListener('click', async () => {
 +    const wrap = el('div');
-+    wrap.appendChild(el('p', '', 'Enter the admin password to add daily logs or reset the store.'));
++    wrap.appendChild(el('p', '', 'Enter the admin password to add daily logs, reset the store or change the publishing settings.'));
 +    const input = el('input'); input.type = 'password'; input.autocomplete = 'off'; input.placeholder = 'Admin password';
 +    wrap.appendChild(input);
 +    wrap.appendChild(el('p', 'muted', 'Admin mode lasts until you close this page.'));
@@ -507,14 +510,89 @@ index 5a22dd1..f5eb79e 100644
 +        return false;
 +      }
 +    });
-+    if (ok) { renderAdmin(); setStoreMsg('Admin mode is on until you close this page.', 'success'); }
++    if (ok) {
++      renderAdmin(); refreshStore(true);
++      setStoreMsg('Admin mode is on until you close this page.', 'success');
++      // Publishing needs a token in this browser — if it isn't there yet, go straight to the settings.
++      if (!Store.status().canPublish) { setStoreMsg('Admin mode is on. Publishing isn’t set up in this browser yet — fill in the settings below.', 'success'); openPublishSettings(); }
++    }
 +  });
 +  adminExitBtn.addEventListener('click', () => {
 +    Store.exitAdmin();
 +    T4.addList = []; renderAddList();
-+    renderAdmin();
++    renderAdmin(); storeSource.textContent = '';
 +    setStoreMsg('Admin mode is off.');
++    refreshStore(true);
 +  });
++
++  /* ---------- publishing settings (admin) ---------- */
++  const normRepo = s => String(s || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
++
++  async function openPublishSettings() {
++    if (!Store.isAdmin()) return null;
++    const cur = Store.getSettings();
++    const field = (label, input) => { const l = el('label', 'field stacked', label); l.appendChild(input); return l; };
++    const mk = (type, value, ph) => { const i = el('input'); i.type = type; i.value = value || ''; i.placeholder = ph || ''; i.autocomplete = 'off'; i.spellcheck = false; return i; };
++
++    const wrap = el('div', 'settings-form');
++    wrap.appendChild(el('p', '', 'Admins publish each day’s data to a GitHub repository and everyone else reads it from there. These settings are saved only in this browser.'));
++    const repo = mk('text', cur.repo, 'owner/name  (e.g. myorg/clanalysis-data)');
++    const branch = mk('text', cur.branch || 'main', 'main');
++    const token = mk('password', '', cur.hasToken ? '•••••• saved — leave empty to keep it' : 'github_pat_…');
++    repo.id = 'setRepo'; branch.id = 'setBranch'; token.id = 'setToken';
++    wrap.appendChild(field('Data repository', repo));
++    wrap.appendChild(field('Branch', branch));
++    wrap.appendChild(field('GitHub token', token));
++    wrap.appendChild(el('p', 'muted', 'The token lets this browser change that one repository — keep it private and don’t save it on a shared computer.'));
++
++    const removeBtn = el('button', 'link-btn danger', 'Remove the saved token from this browser');
++    removeBtn.type = 'button'; removeBtn.id = 'setRemoveToken';
++    removeBtn.classList.toggle('hidden', !cur.hasToken);
++    wrap.appendChild(removeBtn);
++
++    const cfgBox = el('div', 'cfg-box');
++    const cfgNote = el('p', '', ''); cfgNote.id = 'setCfgNote';
++    const cfgPre = el('pre', 'cfg-text'); cfgPre.id = 'setCfgText';
++    cfgBox.appendChild(cfgNote); cfgBox.appendChild(cfgPre);
++    wrap.appendChild(cfgBox);
++    const drawCfg = () => {
++      const r = normRepo(repo.value), b = branch.value.trim() || 'main';
++      cfgPre.textContent = JSON.stringify({ repo: r || 'owner/name', branch: b }, null, 2);
++      const same = Store.getSettings().fileRepo && Store.getSettings().fileRepo === r;
++      cfgNote.textContent = same
++        ? '✓ Everyone’s page already uses this repository (the website’s store-config.json matches).'
++        : 'For everyone else to see the store, the website must contain a file named store-config.json (next to index.html) with exactly this:';
++      cfgBox.classList.toggle('ok', !!same);
++    };
++    repo.addEventListener('input', drawCfg); branch.addEventListener('input', drawCfg); drawCfg();
++
++    removeBtn.addEventListener('click', () => {
++      Store.clearToken(); token.placeholder = 'github_pat_…'; removeBtn.classList.add('hidden');
++      if (dlgState) dlgState.say('Token removed from this browser.', 'info');
++    });
++
++    const res = await openDialog({
++      title: 'Publishing settings', body: wrap, okText: 'Save and test', cancelText: 'Close',
++      onOpen: ({ submit }) => {
++        setTimeout(() => (repo.value ? token : repo).focus(), 30);
++        for (const i of [repo, branch, token]) i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
++      },
++      onOk: async say => {
++        const saved = Store.saveSettings({ repo: repo.value, branch: branch.value, token: token.value });
++        token.value = '';
++        if (!saved.canPublish) return { saved: true, tested: false, remembered: saved.saved };
++        say('Testing the connection…', 'info');
++        await Store.ensureWritable();                       // throws a friendly message → stays open
++        return { saved: true, tested: true, remembered: saved.saved };
++      }
++    });
++    await refreshStore(true);
++    if (res && res.tested) setStoreMsg('Publishing is connected — this browser can now add days to the store.' + (res.remembered ? '' : ' (This browser won’t remember the token after you close the page.)'), 'success');
++    else if (res && res.saved) setStoreMsg('Repository saved. Add a GitHub token to be able to publish.', 'success');
++    return res;
++  }
++  publishBtn.addEventListener('click', () => openPublishSettings());
++  addSetupBtn.addEventListener('click', () => openPublishSettings());
 +
 +  /* ---------- add daily logs (admin) ---------- */
 +  function renderAddList() {
@@ -563,7 +641,7 @@ index 5a22dd1..f5eb79e 100644
 +      addResult.appendChild(el('div', 'result-note warn',
 +        `Already added earlier: ${res.duplicateFiles.join(', ')} — re-adding never double-counts, so nothing changed for those rows.`));
 +    }
-+    addResult.appendChild(el('div', 'result-note', 'Saved into the synced folder — TrueSync uploads it to WorkDrive shortly.'));
++    addResult.appendChild(el('div', 'result-note', 'Published to the shared store. Everyone can use the new days within a few minutes (Refresh shows them right away).'));
 +  }
 +
 +  addRunBtn.addEventListener('click', async () => {
@@ -573,14 +651,13 @@ index 5a22dd1..f5eb79e 100644
 +    addClearBtn.disabled = true; addResult.textContent = '';
 +    setProgress(addProgress, 0);
 +    try {
-+      // Needs the click's user activation, so it goes first.
-+      await Store.ensureWritable();
++      await Store.ensureWritable();        // confirms the token before any heavy reading
 +      const parsed = await Store.parseLogFiles(T4.addList, ({ fileIndex, fileCount, name, pct }) => {
 +        setProgress(addProgress, ((fileIndex + pct / 100) / fileCount) * 90);
 +        setStatus(addStatus, `Reading ${name} (${fileIndex + 1} of ${fileCount}) — ${Math.round(pct)}%`);
 +      });
 +      if (!parsed.days.size) throw new Error('No usable rows found. The files need Action, Date and User Email columns.');
-+      setStatus(addStatus, 'Saving to the store…'); setProgress(addProgress, 94);
++      setStatus(addStatus, 'Publishing to the shared store…'); setProgress(addProgress, 94);
 +      let res = await Store.commitParsed(parsed);
 +      if (res.needsConfirm) {
 +        const go = await openDialog({ title: 'Different month in these files', body: res.guard.message, okText: 'Continue anyway', cancelText: 'Cancel' });
@@ -588,7 +665,7 @@ index 5a22dd1..f5eb79e 100644
 +        res = await Store.commitParsed(parsed, { confirmMixedMonths: true });
 +      }
 +      setProgress(addProgress, 100);
-+      setStatus(addStatus, `Done — ${plural(res.days.length, 'day')} updated.`, 'success');
++      setStatus(addStatus, `Done — ${plural(res.days.length, 'day')} published.`, 'success');
 +      renderAddResult(res);
 +      T4.addList = []; renderAddList();
 +      await refreshStore(true);
@@ -596,6 +673,7 @@ index 5a22dd1..f5eb79e 100644
 +      console.error(e);
 +      setStatus(addStatus, `Error: ${e.message}`, 'error');
 +      setProgress(addProgress, 0);
++      if (needsSettings(e)) setTimeout(openPublishSettings, 0);     // token / repository problem → open the settings
 +    } finally {
 +      T4.busy = false; addClearBtn.disabled = false; renderAdmin();
 +    }
@@ -604,8 +682,8 @@ index 5a22dd1..f5eb79e 100644
 +  /* ---------- reset (admin) ---------- */
 +  resetStoreBtn.addEventListener('click', async () => {
 +    if (!Store.isAdmin() || T4.busy) return;
-+    try { await Store.ensureWritable(); }       // user activation first
-+    catch (e) { setStoreMsg(e.message, 'error'); return; }
++    try { await Store.ensureWritable(); }
++    catch (e) { setStoreMsg(e.message, 'error'); if (needsSettings(e)) openPublishSettings(); return; }
 +    let manifest;
 +    try { manifest = await Store.loadManifest(); } catch (e) { setStoreMsg(e.message, 'error'); return; }
 +    const s = Store.summarize(manifest);
@@ -613,7 +691,7 @@ index 5a22dd1..f5eb79e 100644
 +    const month = s.firstDay.slice(0, 7);
 +
 +    const wrap = el('div');
-+    wrap.appendChild(el('p', '', `This archives all ${plural(s.dayCount, 'stored day')} (${Store.fmtDMY(s.firstDay)} to ${Store.fmtDMY(s.lastDay)}) into the folder archive/${month} and empties the store. Nothing is deleted — the data stays in the archive folder.`));
++    wrap.appendChild(el('p', '', `This archives all ${plural(s.dayCount, 'stored day')} (${Store.fmtDMY(s.firstDay)} to ${Store.fmtDMY(s.lastDay)}) into the folder archive/${month} of the data repository and empties the store. Nothing is deleted — the archived data stays in the repository.`));
 +    wrap.appendChild(el('p', '', 'Type RESET to confirm:'));
 +    const input = el('input'); input.type = 'text'; input.autocomplete = 'off'; input.placeholder = 'RESET';
 +    wrap.appendChild(input);
@@ -629,7 +707,7 @@ index 5a22dd1..f5eb79e 100644
 +      },
 +      onOk: async say => {
 +        if (input.value.trim() !== 'RESET') { say('Type RESET (capitals) to confirm.'); return false; }
-+        say('Archiving…', 'info');
++        say('Archiving and publishing…', 'info');
 +        return await Store.resetStore();
 +      }
 +    });
@@ -640,7 +718,7 @@ index 5a22dd1..f5eb79e 100644
 +      setStoreMsg(`Store reset. ${plural(done.dayCount, 'day')} archived to ${done.archivedTo}.`, 'success');
 +      showModal('Store reset',
 +        `Archived ${plural(done.dayCount, 'day')} (${Store.fmtDMY(done.firstDay)} to ${Store.fmtDMY(done.lastDay)}) to:\n  ${done.archivedTo}\n\n` +
-+        'The store is now empty — add the new month\'s files to start again. The archive folder is kept in WorkDrive.');
++        'The store is now empty for everyone — add the new month\'s files to start again. The archive stays in the data repository.');
 +    }
 +    renderAdmin();
 +  });
@@ -659,7 +737,8 @@ index 5a22dd1..f5eb79e 100644
 +    const v = Store.validateRange(p, connected ? T4.summary : null, Store.todayKey());
 +    rptMsgs.textContent = '';
 +    if (!connected) {
-+      rptMsgs.appendChild(el('div', 'msg error', Store.isConnected() ? 'Reading the store…' : 'Choose the store folder first.'));
++      const st = Store.status();
++      rptMsgs.appendChild(el('div', 'msg error', !st.configured ? "The shared store isn't set up yet." : (T4.loadError ? 'The store could not be read — press Refresh.' : 'Reading the store…')));
 +    } else {
 +      // Don't shout about empty fields before the user has touched the form (an empty store is always shown).
 +      const touched = !!(p.from || p.to || p.lookbackFrom);
@@ -787,11 +866,12 @@ index 5a22dd1..f5eb79e 100644
 +    }
 +  });
 +
-+  /* ---------- start-up: reconnect to the remembered folder ---------- */
++  /* ---------- start-up: open the shared store for everyone ---------- */
 +  (async () => {
-+    renderAdmin(); renderValidation();
-+    try { await onFolderState(await Store.restoreFolder()); }
-+    catch (e) { setStoreMsg(e.message, 'error'); }
++    renderAdmin(); renderValidation(); renderLabel();
++    try { await Store.init(); }
++    catch (e) { console.error(e); }
++    await refreshStore(true);
 +  })();
 +
  })();
@@ -1043,31 +1123,31 @@ index 3a270f9..ecf3a71 100644
  };
 diff --git a/js/store.js b/js/store.js
 new file mode 100644
-index 0000000..cc38781
+index 0000000..5f84a10
 --- /dev/null
 +++ b/js/store.js
-@@ -0,0 +1,677 @@
+@@ -0,0 +1,818 @@
 +/* ============================================================
 + * store.js — Daily activity store + date-range MAU report (Tab 4)
 + *
-+ * The store is a plain folder (a Zoho WorkDrive folder synced to the laptop by
-+ * WorkDrive TrueSync) that the browser reads/writes through the File System
-+ * Access API. Layout:
++ * The store is a small public GitHub "data repo". Everyone reads it over plain HTTPS (no login, no Zoho);
++ * admins add days / reset it from the page, which publishes one atomic commit (see "where the store lives").
++ * Layout inside the data repo:
 + *
-+ *   manifest.json            index of stored days (rebuilt from daily/ if lost)
++ *   manifest.json            index of stored days
 + *   daily/YYYY-MM-DD.csv     one file per IST day:  email,first_mau_ts,first_login_ts
-+ *   archive/YYYY-MM/...      created by an admin "Reset store"
++ *   archive/YYYY-MM/...      created by an admin "Reset store" (nothing is ever deleted — git keeps history too)
 + *
 + * Only EARLIEST timestamps are kept per student per day, so adding the same raw
 + * file twice (or overlapping files) can never double-count.
 + *
-+ * All folder I/O goes through a small adapter (readText / writeText / exists /
-+ * dirExists / list / remove / probeWrite) so the same code runs in the browser
-+ * (FileSystemDirectoryHandle) and in Node tests (fs).
++ * All storage I/O goes through a small adapter (readText / writeText / exists / remove / probeWrite,
++ * optional list / flush / discard) so the same code runs in the browser (HTTP + GitHub API) and in
++ * Node tests (fs).
 + *
 + * Depends on (loaded earlier): Papa (PapaParse) and window.Processing
 + * (parseLogTimestamp, buildReportFromActivity).
-+ * No credentials live here — the Zoho account is only used by TrueSync itself.
++ * No credential is stored in the code: an admin's GitHub token lives only in that admin's browser.
 + * ============================================================ */
 +(function () {
 +  'use strict';
@@ -1086,7 +1166,7 @@ index 0000000..cc38781
 +  const MAU_ACTIONS = new Set(['Created', 'Created public link']);
 +  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 +  const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-+  const READ_ONLY_MSG = 'This folder is read-only for you (WorkDrive Viewer). Ask an admin with Editor access to do this.';
++  const READ_ONLY_MSG = "You don't have permission to change the store. Ask an admin to do this.";
 +
 +  class StoreError extends Error {
 +    constructor(code, message) { super(message); this.name = 'StoreError'; this.code = code; }
@@ -1160,75 +1240,38 @@ index 0000000..cc38781
 +  }
 +  function countMau(map) { let n = 0; for (const v of map.values()) if (v.mau != null) n++; return n; }
 +
-+  /* ---------- adapter (browser) ---------- */
-+  function splitPath(p) { const parts = p.split('/'); return { dirs: parts.slice(0, -1), name: parts[parts.length - 1] }; }
-+  async function walkDir(root, dirs, create) {
-+    let d = root;
-+    for (const part of dirs) d = await d.getDirectoryHandle(part, { create: !!create });
-+    return d;
-+  }
-+  const isNotFound = e => e && (e.name === 'NotFoundError' || e.name === 'TypeMismatchError');
-+
-+  function browserAdapter(root) {
-+    return {
-+      async readText(path) {
-+        const { dirs, name } = splitPath(path);
-+        try {
-+          const dir = await walkDir(root, dirs, false);
-+          const fh = await dir.getFileHandle(name);
-+          return await (await fh.getFile()).text();
-+        } catch (e) { if (isNotFound(e)) return null; throw e; }
-+      },
-+      async writeText(path, text) {
-+        const { dirs, name } = splitPath(path);
-+        const dir = await walkDir(root, dirs, true);
-+        const fh = await dir.getFileHandle(name, { create: true });
-+        const w = await fh.createWritable();
-+        await w.write(text);
-+        await w.close();
-+      },
-+      async exists(path) { return (await this.readText(path)) !== null; },
-+      async dirExists(path) {
-+        try { await walkDir(root, path.split('/'), false); return true; } catch (e) { if (isNotFound(e)) return false; throw e; }
-+      },
-+      async list(dirPath) {
-+        try {
-+          const dir = await walkDir(root, dirPath ? dirPath.split('/') : [], false);
-+          const out = [];
-+          for await (const [name, h] of dir.entries()) if (h.kind === 'file') out.push(name);
-+          return out;
-+        } catch (e) { if (isNotFound(e)) return []; throw e; }
-+      },
-+      async remove(path) {
-+        const { dirs, name } = splitPath(path);
-+        const dir = await walkDir(root, dirs, false);
-+        await dir.removeEntry(name);
-+      },
-+      /** Throws if this user can't write (e.g. WorkDrive Viewer). Creates an empty manifest if absent. */
-+      async probeWrite() {
-+        const fh = await root.getFileHandle(MANIFEST, { create: true });
-+        const w = await fh.createWritable({ keepExistingData: true });
-+        await w.abort();                                   // permission check only — no change
-+        if ((await fh.getFile()).size === 0) {
-+          const w2 = await fh.createWritable();
-+          await w2.write(JSON.stringify({ version: 1, days: {} }));
-+          await w2.close();
-+        }
-+      }
-+    };
-+  }
-+
-+  /* ---------- connection state ---------- */
-+  let _adapter = null, _handle = null, _pendingHandle = null, _folderName = '';
++  /* ---------- where the store lives ---------- */
++  // Readers (everyone, no login): plain HTTPS GET of  <base>manifest.json  and  <base>daily/YYYY-MM-DD.csv
++  //   from a public GitHub "data repo" (served by raw.githubusercontent.com unless dataBaseUrl says otherwise).
++  // Admins: one atomic commit per Add / Reset through the GitHub Git Data API, using a fine-grained token
++  //   that lives only in that admin's browser (localStorage) — never in the code.
++  const DEFAULT_CFG = { repo: '', branch: 'main', dataBaseUrl: '', apiBase: 'https://api.github.com', rawBase: 'https://raw.githubusercontent.com' };
++  const LS_KEY = 'cla_publish';
++  const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
++  let _cfg = { ...DEFAULT_CFG };          // effective settings
++  let _token = '';
++  let _fetch = (...a) => fetch(...a);     // overridable (tests)
++  let _override = null;                   // tests: one ready-made adapter used for reads AND writes
++  let _reader = null, _writer = null, _storeName = '', _cfgSource = 'none';
 +  let _admin = false, _fails = 0, _lockUntil = 0;
 +
-+  function setFolder(handle) {
-+    _handle = handle; _pendingHandle = null; _folderName = handle.name || '';
-+    _adapter = browserAdapter(handle);
-+  }
++  const sleep = ms => new Promise(r => setTimeout(r, ms));
++  const encPath = p => p.split('/').map(encodeURIComponent).join('/');
++  function lsGet() { try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (_) { return null; } }
++  function lsSet(o) { try { if (o) localStorage.setItem(LS_KEY, JSON.stringify(o)); else localStorage.removeItem(LS_KEY); return true; } catch (_) { return false; } }
++  const withCb = u => u + (u.includes('?') ? '&' : '?') + 'cb=' + Date.now();      // busts browser/proxy caches (NOT GitHub's file CDN — that is why reads are pinned to a commit)
++
 +  function requireAdapter() {
-+    if (!_adapter) throw new StoreError('no-folder', 'Choose the store folder first.');
-+    return _adapter;
++    const a = _override || _reader;
++    if (!a) throw new StoreError('not-configured', "The shared store isn't set up yet. An admin needs to finish the one-time setup (see Publishing settings).");
++    return a;
++  }
++  function requireWriter() {
++    if (_override) return _override;
++    if (!_cfg.repo || !REPO_RE.test(_cfg.repo)) throw new StoreError('not-configured', 'Publishing settings are incomplete: enter the data repository as owner/name.');
++    if (!_token) throw new StoreError('no-token', 'Add your GitHub token in Publishing settings first.');
++    if (!_writer) _writer = githubWriter();
++    return _writer;
 +  }
 +  function requireAdmin() {
 +    if (!_admin) throw new StoreError('not-admin', 'Admin login required.');
@@ -1238,91 +1281,237 @@ index 0000000..cc38781
 +    return n === 'NotAllowedError' || n === 'NoModificationAllowedError' || n === 'SecurityError' ||
 +      /read-only|EACCES|EPERM|EROFS|not allowed/i.test(m);
 +  }
-+  /** Run a write operation; turn "not allowed" failures into the friendly Viewer message. */
++  /** Run a write operation; turn "not allowed" failures into the friendly read-only message. */
 +  async function guardedWrite(fn) {
 +    try { return await fn(); }
 +    catch (e) { if (e instanceof StoreError) throw e; if (isWriteDenied(e)) throw new StoreError('read-only', READ_ONLY_MSG); throw e; }
 +  }
 +
-+  /* ---------- IndexedDB: remember the chosen folder ---------- */
-+  function idb() {
-+    return new Promise((resolve, reject) => {
-+      if (typeof indexedDB === 'undefined') { reject(new Error('no indexedDB')); return; }
-+      const req = indexedDB.open('cla_store', 1);
-+      req.onupgradeneeded = () => req.result.createObjectStore('handles');
-+      req.onsuccess = () => resolve(req.result);
-+      req.onerror = () => reject(req.error);
++  /* ---------- reading (everyone) ---------- */
++  /** GET text; 404 → null. Retries a few times on network errors / 429 / 5xx. */
++  async function httpGetText(url) {
++    let last = null;
++    for (let i = 0; i < 3; i++) {
++      let res;
++      try { res = await _fetch(withCb(url), { cache: 'no-store' }); }
++      catch (e) { last = e; await sleep(300 * (i + 1)); continue; }
++      if (res.status === 404) return null;
++      if (res.ok) return await res.text();
++      if (res.status === 429 || res.status >= 500) { last = new Error(`HTTP ${res.status}`); await sleep(600 * (i + 1)); continue; }
++      throw new StoreError('http', `Could not load ${url.split('/').slice(-2).join('/')} (HTTP ${res.status}).`);
++    }
++    throw new StoreError('network', `Could not reach the store (${(last && last.message) || 'network error'}). Check your internet connection and press Refresh.`);
++  }
++  function readBase() {
++    let b = _cfg.dataBaseUrl || (_cfg.repo ? `${_cfg.rawBase}/${_cfg.repo}/${encPath(_cfg.branch || 'main')}/` : '');
++    if (b && !b.endsWith('/')) b += '/';
++    return b;
++  }
++  /**
++   * Reader for everyone (no login). raw.githubusercontent.com keeps every file for ~5 minutes and ignores ?query
++   * strings, so reading "the main branch" can show yesterday's data right after an admin published. To avoid that,
++   * a GitHub repo is read at an exact COMMIT: the latest commit id is looked up first (one tiny API call), then every
++   * file is fetched from that commit's own URL — those never go stale and the manifest + day files always match.
++   * If the lookup fails (e.g. GitHub's anonymous rate limit), it quietly falls back to the branch URL.
++   * `pin` = { repo, branch } for a GitHub repo, or null for a plain base URL.
++   */
++  function remoteReader(base, pin) {
++    let head = null, headAt = 0, known = null;                // head = commit id currently read; known = our own latest publish
++    const HEAD_TTL = 60 * 1000, KNOWN_TTL = 90 * 1000;
++    const pinned = sha => `${_cfg.rawBase}/${pin.repo}/${sha}/`;
++    const make = root => ({
++      remote: true,
++      async readText(path) { return httpGetText(root() + encPath(path)); },
++      async exists(path) { return (await this.readText(path)) !== null; }
 +    });
-+  }
-+  async function idbGetHandle() {
-+    try {
-+      const db = await idb();
-+      return await new Promise(res => {
-+        const r = db.transaction('handles', 'readonly').objectStore('handles').get('storeDir');
-+        r.onsuccess = () => res(r.result || null); r.onerror = () => res(null);
-+      });
-+    } catch (_) { return null; }
-+  }
-+  async function idbPutHandle(h) {
-+    try {
-+      const db = await idb();
-+      await new Promise(res => {
-+        const r = db.transaction('handles', 'readwrite').objectStore('handles').put(h, 'storeDir');
-+        r.onsuccess = () => res(); r.onerror = () => res();
-+      });
-+    } catch (_) { /* remembering the folder is best-effort */ }
++    const r = make(() => (pin && head) ? pinned(head) : base);
++    /** Find the newest commit. `force` skips the 60-second memory (Refresh button). Returns the commit id or null. */
++    r.resolveHead = async function (force) {
++      if (!pin) return null;
++      const now = Date.now();
++      if (known && now < known.until) { head = known.sha; headAt = now; return head; }
++      if (!force && head && now - headAt < HEAD_TTL) return head;
++      try {
++        const res = await _fetch(`${_cfg.apiBase}/repos/${pin.repo}/commits/${encodeURIComponent(pin.branch)}`, {
++          cache: 'no-store',
++          headers: { Accept: 'application/vnd.github.sha', ...(_token ? { Authorization: `Bearer ${_token}` } : {}) }
++        });
++        if (res.ok) {
++          const t = (await res.text()).trim();
++          if (/^[0-9a-f]{40}$/i.test(t)) { head = t; headAt = Date.now(); return head; }
++        }
++      } catch (_) { /* fall back below */ }
++      head = null; headAt = 0;
++      return null;
++    };
++    r.head = () => head;
++    /** The admin's own publish: show it right away instead of waiting for GitHub's caches. */
++    r.note = sha => { if (pin && /^[0-9a-f]{40}$/i.test(sha || '')) { known = { sha, until: Date.now() + KNOWN_TTL }; head = sha; headAt = Date.now(); } };
++    /** A reader fixed to one commit (so a report reads exactly the data its manifest described). */
++    r.at = sha => (pin && sha) ? make(() => pinned(sha)) : r;
++    return r;
 +  }
 +
-+  /* ---------- folder selection / permission ---------- */
-+  function isSupported() { return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'; }
++  /* ---------- publishing (admins) ---------- */
++  async function ghError(res, what) {
++    let msg = '';
++    try { msg = (await res.json()).message || ''; } catch (_) { /* not json */ }
++    const repo = _cfg.repo;
++    if (res.status === 401) return new StoreError('bad-token', "GitHub didn't accept the token (wrong or expired). Open Publishing settings and paste a new one.");
++    if (res.status === 403) {
++      if (res.headers && res.headers.get && res.headers.get('x-ratelimit-remaining') === '0') return new StoreError('rate-limit', 'GitHub is rate-limiting requests right now. Wait a few minutes and try again.');
++      return new StoreError('no-write', `The token isn't allowed to ${what || 'change'} ${repo}. It needs access to that repository with "Contents: Read and write".`);
++    }
++    if (res.status === 404) return new StoreError('no-repo', `GitHub can't find ${repo}, or the token has no access to it. Check the name and token in Publishing settings.`);
++    if (res.status === 409 || (res.status === 422 && /fast.?forward/i.test(msg))) return new StoreError('conflict', 'Someone else published at the same moment.');
++    return new StoreError('github', `GitHub said: ${msg || ('HTTP ' + res.status)}${what ? ` (while trying to ${what})` : ''}`);
++  }
 +
-+  /** On page load: reconnect to the remembered folder. state: none | needs-permission | ready | unsupported */
-+  async function restoreFolder() {
-+    if (_adapter) return { state: 'ready', name: _folderName };
-+    if (!isSupported()) return { state: 'unsupported' };
-+    const h = await idbGetHandle();
-+    if (!h) return { state: 'none' };
-+    try {
-+      if ((await h.queryPermission({ mode: 'read' })) === 'granted') { setFolder(h); return { state: 'ready', name: h.name }; }
-+    } catch (_) { return { state: 'none' }; }
-+    _pendingHandle = h;
-+    return { state: 'needs-permission', name: h.name };
++  /** Write adapter: reads are authenticated and fresh; writes are buffered and pushed by flush() as ONE commit. */
++  function githubWriter() {
++    const repo = _cfg.repo, branch = _cfg.branch || 'main';
++    const pending = new Map();                          // path → {content} | {del:true}
++    async function api(method, path, body, accept) {
++      try {
++        return await _fetch(`${_cfg.apiBase}${path}`, {
++          method, cache: 'no-store',
++          headers: {
++            Authorization: `Bearer ${_token}`, Accept: accept || 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
++            ...(body ? { 'Content-Type': 'application/json' } : {})
++          },
++          body: body ? JSON.stringify(body) : undefined
++        });
++      } catch (e) { throw new StoreError('network', `Could not reach GitHub (${e.message || 'network error'}). Check your internet connection.`); }
++    }
++    const must = async (res, what) => { if (!res.ok) throw await ghError(res, what); return res.json(); };
++    const refPath = `/repos/${repo}/git/refs/heads/${encPath(branch)}`;
++    return {
++      remote: true,
++      async readText(path) {
++        if (pending.has(path)) { const v = pending.get(path); return v.del ? null : v.content; }
++        const res = await api('GET', `/repos/${repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`, null, 'application/vnd.github.raw+json');
++        if (res.status === 404) return null;
++        if (!res.ok) throw await ghError(res, 'read');
++        return res.text();
++      },
++      async exists(path) { return (await this.readText(path)) !== null; },
++      async writeText(path, text) { pending.set(path, { content: text }); },
++      async remove(path) { pending.set(path, { del: true }); },
++      /** Checks the token can reach the repo and (when GitHub says) push to it. No change is made. */
++      async probeWrite() {
++        const res = await api('GET', `/repos/${repo}`);
++        const info = await must(res, 'access');
++        if (info && info.permissions && info.permissions.push === false) throw new StoreError('no-write', `The token can read ${repo} but not change it. It needs "Contents: Read and write".`);
++        return info;
++      },
++      async flush(message) {
++        if (!pending.size) return null;
++        let res = await api('GET', `/repos/${repo}/git/ref/heads/${encPath(branch)}`);
++        if (res.status === 404 || res.status === 409) throw new StoreError('no-branch', `Branch “${branch}” doesn't exist in ${repo}. Create the repository with a README so it has a ${branch} branch.`);
++        const head = (await must(res, 'read the branch')).object.sha;
++        const baseTree = (await must(await api('GET', `/repos/${repo}/git/commits/${head}`), 'read the branch')).tree.sha;
++        const dels = [...pending].filter(([, v]) => v.del).map(([p]) => p);
++        let existing = new Set();
++        if (dels.length) existing = new Set((await must(await api('GET', `/repos/${repo}/git/trees/${baseTree}?recursive=1`), 'read the store')).tree.map(t => t.path));
++        const tree = [];
++        for (const [p, v] of pending) {
++          if (v.del) { if (existing.has(p)) tree.push({ path: p, mode: '100644', type: 'blob', sha: null }); }
++          else tree.push({ path: p, mode: '100644', type: 'blob', content: v.content });
++        }
++        if (!tree.length) { pending.clear(); return null; }
++        const newTree = (await must(await api('POST', `/repos/${repo}/git/trees`, { base_tree: baseTree, tree }), 'write')).sha;
++        const commit = (await must(await api('POST', `/repos/${repo}/git/commits`, { message, tree: newTree, parents: [head] }), 'write')).sha;
++        res = await api('PATCH', refPath, { sha: commit, force: false });
++        if (!res.ok) throw await ghError(res, 'write');
++        pending.clear();
++        if (_reader && _reader.note) _reader.note(commit);        // our own page shows the new data immediately
++        return { commit };
++      },
++      discard() { pending.clear(); }
++    };
 +  }
-+  /** Must be called from a click (user gesture): the one-click "Reconnect store". */
-+  async function reconnect() {
-+    if (!_pendingHandle) return restoreFolder();
-+    const perm = await _pendingHandle.requestPermission({ mode: 'read' });
-+    if (perm !== 'granted') return { state: 'needs-permission', name: _pendingHandle.name };
-+    setFolder(_pendingHandle);
-+    return { state: 'ready', name: _folderName };
-+  }
-+  async function pickFolder() {
-+    if (!isSupported()) throw new StoreError('unsupported', 'This browser cannot open folders. Use Chrome or Edge on a desktop.');
-+    let h;
-+    try { h = await window.showDirectoryPicker({ id: 'cla-store', mode: 'read' }); }
-+    catch (e) { if (e && e.name === 'AbortError') return { state: 'cancelled' }; throw e; }
-+    await idbPutHandle(h);
-+    setFolder(h);
-+    return { state: 'ready', name: h.name };
-+  }
-+  /** Admin actions call this first, straight from the click handler (needs user activation). */
-+  async function ensureWritable() {
-+    requireAdapter();
-+    if (_handle) {
-+      let perm = 'prompt';
-+      try { perm = await _handle.queryPermission({ mode: 'readwrite' }); } catch (_) { /* fall through */ }
-+      if (perm !== 'granted') {
-+        try { perm = await _handle.requestPermission({ mode: 'readwrite' }); } catch (_) { perm = 'denied'; }
-+        if (perm !== 'granted') throw new StoreError('write-denied', 'Write access to the store folder was not granted.');
++  /** Re-run a read-modify-write when someone else published in between (idempotent merges make this safe). */
++  async function withConflictRetry(a, fn) {
++    for (let i = 0; ; i++) {
++      try { return await fn(); }
++      catch (e) {
++        if (a.discard) a.discard();
++        if (e && e.code === 'conflict' && i < 3) { await sleep(400 * (i + 1)); continue; }
++        throw e;
 +      }
 +    }
-+    await guardedWrite(() => _adapter.probeWrite());
++  }
++
++  /* ---------- settings / start-up ---------- */
++  function status() {
++    return {
++      configured: !!(_override || _reader), canPublish: !!(_override || (_cfg.repo && REPO_RE.test(_cfg.repo) && _token)),
++      repo: _cfg.repo, branch: _cfg.branch, hasToken: !!_token, source: _cfg.dataBaseUrl ? 'url' : (_cfg.repo ? 'repo' : 'none'), cfgSource: _cfgSource
++    };
++  }
++  function rebuild() {
++    _writer = null; _reader = null;
++    const base = readBase();
++    if (base) _reader = remoteReader(base, (!_cfg.dataBaseUrl && _cfg.repo && REPO_RE.test(_cfg.repo)) ? { repo: _cfg.repo, branch: _cfg.branch || 'main' } : null);
++  }
++  /**
++   * Called once on page load. Settings come from store-config.json (next to index.html, committed with the site)
++   * and, for admins, from this browser's own saved Publishing settings.
++   */
++  async function init(opts) {
++    opts = opts || {};
++    if (opts.fetch) _fetch = opts.fetch;
++    const fileCfg = {};
++    try {
++      const txt = opts.configUrl === null ? null : await httpGetText(opts.configUrl || 'store-config.json');
++      if (txt) {
++        const j = JSON.parse(txt);
++        for (const k of ['repo', 'branch', 'dataBaseUrl']) if (typeof j[k] === 'string' && j[k].trim()) fileCfg[k] = j[k].trim();
++        if (Object.keys(fileCfg).length) _cfgSource = 'file';
++      }
++    } catch (_) { /* no / bad config file → fall through */ }
++    const local = lsGet() || {};
++    _token = typeof local.token === 'string' ? local.token : '';
++    _cfg = { ...DEFAULT_CFG, ...(opts.defaults || {}), ...fileCfg };
++    if (local.repo && REPO_RE.test(local.repo)) { _cfg.repo = local.repo; _cfgSource = 'local'; }
++    if (local.branch) _cfg.branch = local.branch;
++    rebuild();
++    return status();
++  }
++  /** Direct configuration (tests / embedding). */
++  function configure(o) {
++    o = o || {};
++    if (o.fetch) _fetch = o.fetch;
++    for (const k of ['repo', 'branch', 'dataBaseUrl', 'apiBase', 'rawBase']) if (o[k] !== undefined) _cfg[k] = o[k];
++    if (o.token !== undefined) _token = o.token;
++    rebuild();
++    return status();
++  }
++  function getSettings() { return { repo: _cfg.repo, branch: _cfg.branch, hasToken: !!_token, fileRepo: _cfgSource === 'file' ? _cfg.repo : '' }; }
++  /** Save this browser's Publishing settings. token === '' keeps the saved token; token === null removes it. */
++  function saveSettings(s) {
++    const repo = String((s && s.repo) || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
++    const branch = String((s && s.branch) || '').trim() || 'main';
++    if (!REPO_RE.test(repo)) throw new StoreError('bad-repo', 'Enter the data repository as owner/name, for example myorg/clanalysis-data.');
++    const token = s && s.token === null ? '' : (s && s.token ? String(s.token).trim() : _token);
++    _token = token; _cfg.repo = repo; _cfg.branch = branch; _cfgSource = 'local';
++    const saved = lsSet({ repo, branch, token });
++    rebuild();
++    return { saved, ...status() };
++  }
++  function clearToken() { _token = ''; const l = lsGet() || {}; lsSet({ repo: l.repo || _cfg.repo, branch: l.branch || _cfg.branch, token: '' }); rebuild(); }
++  /** The one line everyone else's page needs (commit it as store-config.json next to index.html). */
++  function configFileText() { return JSON.stringify({ repo: _cfg.repo, branch: _cfg.branch }, null, 2) + '\n'; }
++  /** Admin actions call this first: confirms there is a token and that it can reach the repo. */
++  async function ensureWritable() {
++    const a = requireWriter();
++    await guardedWrite(() => a.probeWrite());
 +    return true;
 +  }
-+  /** For tests / embedding: use any adapter object instead of a browser folder. */
-+  function useAdapter(adapter, name) { _adapter = adapter; _handle = null; _folderName = name || 'test-store'; }
-+  function isConnected() { return !!_adapter; }
-+  function folderName() { return _folderName; }
++  /** For tests / embedding: use any adapter object (reads AND writes) instead of the network. */
++  function useAdapter(adapter, name) { _override = adapter; _storeName = name || 'test-store'; }
++  function isConnected() { return !!(_override || _reader); }
++  function storeName() { return _storeName || _cfg.repo || ''; }
 +
 +  /* ---------- admin ---------- */
 +  async function sha256Hex(str) {
@@ -1354,21 +1543,28 @@ index 0000000..cc38781
 +  /* ---------- manifest + summary ---------- */
 +  const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.csv$/;
 +
-+  /** Read manifest.json and reconcile it with what is really in daily/ (TrueSync can lag or conflict). */
-+  async function loadManifest() {
-+    const a = requireAdapter();
++  /**
++   * Read manifest.json (a missing one = an empty store). Adapters that can list a folder (tests / fs) also have the
++   * manifest reconciled with what is really in daily/; over HTTP the manifest is trusted (commits are atomic).
++   */
++  async function loadManifest(adapterOpt, force) {
++    const a = adapterOpt || requireAdapter();
++    if (!adapterOpt && typeof a.resolveHead === 'function') await a.resolveHead(!!force);     // newest commit (see remoteReader)
 +    let m = null;
 +    const txt = await a.readText(MANIFEST);
 +    if (txt && txt.trim()) { try { m = JSON.parse(txt); } catch (_) { m = null; } }
 +    if (!m || typeof m !== 'object' || !m.days || typeof m.days !== 'object') m = { version: 1, days: {} };
-+    const present = new Set();
-+    for (const n of await a.list(DAILY_DIR)) { const mm = DAY_FILE_RE.exec(n); if (mm) present.add(mm[1]); }
-+    for (const k of Object.keys(m.days)) if (!present.has(k)) delete m.days[k];
-+    for (const k of present) {
-+      if (m.days[k]) continue;
-+      const mp = parseDay(await a.readText(`${DAILY_DIR}/${k}.csv`));      // recovered from the file itself
-+      m.days[k] = { students: mp.size, mau: countMau(mp), rawRows: 0, files: [], minTs: null, maxTs: null, updatedAt: null, recovered: true };
++    if (typeof a.list === 'function') {
++      const present = new Set();
++      for (const n of await a.list(DAILY_DIR)) { const mm = DAY_FILE_RE.exec(n); if (mm) present.add(mm[1]); }
++      for (const k of Object.keys(m.days)) if (!present.has(k)) delete m.days[k];
++      for (const k of present) {
++        if (m.days[k]) continue;
++        const mp = parseDay(await a.readText(`${DAILY_DIR}/${k}.csv`));      // recovered from the file itself
++        m.days[k] = { students: mp.size, mau: countMau(mp), rawRows: 0, files: [], minTs: null, maxTs: null, updatedAt: null, recovered: true };
++      }
 +    }
++    if (a.head) Object.defineProperty(m, '_head', { value: a.head(), enumerable: false, configurable: true });     // which commit this manifest came from
 +    return m;
 +  }
 +
@@ -1386,8 +1582,8 @@ index 0000000..cc38781
 +      ...base
 +    };
 +  }
-+  async function getSummary() {
-+    const manifest = await loadManifest();
++  async function getSummary(opts) {
++    const manifest = await loadManifest(null, !!(opts && opts.force));
 +    return { manifest, summary: summarize(manifest) };
 +  }
 +  function formatLabel(s) {
@@ -1508,36 +1704,42 @@ index 0000000..cc38781
 +  /** Merge parsed days into the store files + manifest (idempotent: earliest timestamps win). */
 +  async function commitParsed(parsed, opts) {
 +    requireAdmin();
-+    const a = requireAdapter();
-+    const manifest = await loadManifest();
-+    const guard = checkMonthGuard(parsed, manifest);
-+    if (guard.warn && !(opts && opts.confirmMixedMonths)) return { needsConfirm: true, guard };
-+    await guardedWrite(() => a.probeWrite());
++    const a = requireWriter();
++    try {
++      return await withConflictRetry(a, async () => {
++        const manifest = await loadManifest(a);                    // fresh (authenticated) read
++        const guard = checkMonthGuard(parsed, manifest);
++        if (guard.warn && !(opts && opts.confirmMixedMonths)) return { needsConfirm: true, guard };
++        await guardedWrite(() => a.probeWrite());
 +
-+    const nowIso = new Date(Store._now()).toISOString();
-+    const dup = new Set();
-+    const results = [];
-+    for (const day of [...parsed.days.keys()].sort()) {
-+      const merged = parseDay(await a.readText(`${DAILY_DIR}/${day}.csv`));
-+      for (const [email, v] of parsed.days.get(day)) mergeEntry(merged, email, v.mau, v.login);
-+      await guardedWrite(() => a.writeText(`${DAILY_DIR}/${day}.csv`, serializeDay(merged)));
++        const nowIso = new Date(Store._now()).toISOString();
++        const dup = new Set();
++        const results = [];
++        for (const day of [...parsed.days.keys()].sort()) {
++          const merged = parseDay(await a.readText(`${DAILY_DIR}/${day}.csv`));
++          for (const [email, v] of parsed.days.get(day)) mergeEntry(merged, email, v.mau, v.login);
++          await guardedWrite(() => a.writeText(`${DAILY_DIR}/${day}.csv`, serializeDay(merged)));
 +
-+      const pd = parsed.perDay.get(day);
-+      const e = manifest.days[day] || { students: 0, mau: 0, rawRows: 0, files: [], minTs: null, maxTs: null };
-+      for (const [fname, n] of pd.rowsByFile) {
-+        if (e.files.includes(fname)) dup.add(fname); else { e.files.push(fname); e.rawRows = (e.rawRows || 0) + n; }
-+      }
-+      e.students = merged.size; e.mau = countMau(merged);
-+      e.minTs = minTs(e.minTs, pd.minTs); e.maxTs = e.maxTs == null ? pd.maxTs : Math.max(e.maxTs, pd.maxTs);
-+      e.updatedAt = nowIso; delete e.recovered;
-+      manifest.days[day] = e;
-+      results.push({ day, students: e.students, mau: e.mau, files: pd.rowsByFile.size, rows: [...pd.rowsByFile.values()].reduce((x, y) => x + y, 0) });
-+    }
-+    manifest.version = 1;
-+    manifest.lastAddedAt = nowIso;
-+    manifest.lastAddBatch = parsed.fileNames.slice();
-+    await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify(manifest, null, 1)));
-+    return { ok: true, days: results, duplicateFiles: [...dup], perFile: parsed.perFile, guard };
++          const pd = parsed.perDay.get(day);
++          const e = manifest.days[day] || { students: 0, mau: 0, rawRows: 0, files: [], minTs: null, maxTs: null };
++          for (const [fname, n] of pd.rowsByFile) {
++            if (e.files.includes(fname)) dup.add(fname); else { e.files.push(fname); e.rawRows = (e.rawRows || 0) + n; }
++          }
++          e.students = merged.size; e.mau = countMau(merged);
++          e.minTs = minTs(e.minTs, pd.minTs); e.maxTs = e.maxTs == null ? pd.maxTs : Math.max(e.maxTs, pd.maxTs);
++          e.updatedAt = nowIso; delete e.recovered;
++          manifest.days[day] = e;
++          results.push({ day, students: e.students, mau: e.mau, files: pd.rowsByFile.size, rows: [...pd.rowsByFile.values()].reduce((x, y) => x + y, 0) });
++        }
++        manifest.version = 1;
++        manifest.lastAddedAt = nowIso;
++        manifest.lastAddBatch = parsed.fileNames.slice();
++        await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify(manifest, null, 1)));
++        // Remote store: everything above was buffered; this publishes it as ONE commit (all-or-nothing).
++        if (typeof a.flush === 'function') await guardedWrite(() => a.flush(`Add ${results.length} day(s): ${compressDays(results.map(r => r.day))} (${parsed.fileNames.length} file(s))`));
++        return { ok: true, days: results, duplicateFiles: [...dup], perFile: parsed.perFile, guard, published: typeof a.flush === 'function' };
++      });
++    } finally { if (a.discard) a.discard(); }
 +  }
 +
 +  /**
@@ -1546,7 +1748,6 @@ index 0000000..cc38781
 +   */
 +  async function ingestLogFiles(files, onProgress, opts) {
 +    requireAdmin();
-+    requireAdapter();
 +    const parsed = await parseLogFiles(files, onProgress);
 +    if (!parsed.days.size) throw new StoreError('no-rows', 'No usable rows found (need Action, Date and User Email columns).');
 +    const res = await commitParsed(parsed, opts);
@@ -1557,39 +1758,59 @@ index 0000000..cc38781
 +  /* ---------- reset (admin) ---------- */
 +  async function resetStore() {
 +    requireAdmin();
-+    const a = requireAdapter();
-+    await guardedWrite(() => a.probeWrite());
-+    const manifest = await loadManifest();
-+    const keys = Object.keys(manifest.days).sort();
-+    if (!keys.length) throw new StoreError('empty', 'The store is already empty — nothing to reset.');
-+    let folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}`, n = 2;
-+    while (await a.dirExists(folder)) folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}_${n++}`;
-+    // 1) copy everything to the archive, 2) verify, 3) only then remove the originals.
-+    for (const k of keys) {
-+      const t = await a.readText(`${DAILY_DIR}/${k}.csv`);
-+      if (t != null) await guardedWrite(() => a.writeText(`${folder}/${DAILY_DIR}/${k}.csv`, t));
-+    }
-+    await guardedWrite(() => a.writeText(`${folder}/${MANIFEST}`, JSON.stringify(manifest, null, 1)));
-+    for (const k of keys) {
-+      if ((await a.exists(`${DAILY_DIR}/${k}.csv`)) && !(await a.exists(`${folder}/${DAILY_DIR}/${k}.csv`)))
-+        throw new StoreError('archive-failed', `Could not archive ${k}; nothing was deleted.`);
-+    }
-+    for (const k of keys) await guardedWrite(() => a.remove(`${DAILY_DIR}/${k}.csv`));
-+    await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify({ version: 1, days: {}, resetAt: new Date(Store._now()).toISOString(), archivedTo: folder }, null, 1)));
-+    return { archivedTo: folder, dayCount: keys.length, firstDay: keys[0], lastDay: keys[keys.length - 1], studentDayRows: summarize(manifest).studentDayRows };
++    const a = requireWriter();
++    try {
++      return await withConflictRetry(a, async () => {
++        await guardedWrite(() => a.probeWrite());
++        const manifest = await loadManifest(a);
++        const keys = Object.keys(manifest.days).sort();
++        if (!keys.length) throw new StoreError('empty', 'The store is already empty — nothing to reset.');
++        let folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}`, n = 2;
++        while (await a.exists(`${folder}/${MANIFEST}`)) folder = `${ARCHIVE_DIR}/${keys[0].slice(0, 7)}_${n++}`;
++        // 1) copy everything to the archive, 2) verify, 3) only then remove the originals.
++        for (const k of keys) {
++          const t = await a.readText(`${DAILY_DIR}/${k}.csv`);
++          if (t != null) await guardedWrite(() => a.writeText(`${folder}/${DAILY_DIR}/${k}.csv`, t));
++        }
++        await guardedWrite(() => a.writeText(`${folder}/${MANIFEST}`, JSON.stringify(manifest, null, 1)));
++        for (const k of keys) {
++          if ((await a.exists(`${DAILY_DIR}/${k}.csv`)) && !(await a.exists(`${folder}/${DAILY_DIR}/${k}.csv`)))
++            throw new StoreError('archive-failed', `Could not archive ${k}; nothing was deleted.`);
++        }
++        for (const k of keys) await guardedWrite(() => a.remove(`${DAILY_DIR}/${k}.csv`));
++        await guardedWrite(() => a.writeText(MANIFEST, JSON.stringify({ version: 1, days: {}, resetAt: new Date(Store._now()).toISOString(), archivedTo: folder }, null, 1)));
++        // Remote store: publish the whole move as ONE commit (the archive and the empty store appear together).
++        if (typeof a.flush === 'function') await guardedWrite(() => a.flush(`Archive ${keys[0].slice(0, 7)} to ${folder} and reset the store`));
++        return { archivedTo: folder, dayCount: keys.length, firstDay: keys[0], lastDay: keys[keys.length - 1], studentDayRows: summarize(manifest).studentDayRows };
++      });
++    } finally { if (a.discard) a.discard(); }
 +  }
 +
 +  /* ---------- read a range ---------- */
 +  /** Earliest MAU / login timestamp per student across the stored days in [fromKey, toKey]. */
 +  async function loadActivityForRange(fromKey, toKey, manifestOpt) {
-+    const a = requireAdapter();
++    const a0 = requireAdapter();
 +    const manifest = manifestOpt || await loadManifest();
++    const a = (manifest._head && a0.at) ? a0.at(manifest._head) : a0;      // read the same commit the manifest came from
 +    const firstMau = new Map(), firstLogin = new Map(), missingDays = [], storedDays = [];
-+    for (const k of dayRange(fromKey, toKey)) {
++    const days = dayRange(fromKey, toKey);
++    const wanted = days.filter(k => manifest.days[k]);
++    const texts = new Map();
++    let next = 0;                                              // small worker pool: ≤ 6 downloads at a time
++    const worker = async () => {
++      while (next < wanted.length) {
++        const k = wanted[next++];
++        try { texts.set(k, await a.readText(`${DAILY_DIR}/${k}.csv`)); }
++        catch (e) {
++          if (e instanceof StoreError) throw e;
++          throw new StoreError('read-failed', `Could not read ${k}.csv (${e.message || e.name}).`);
++        }
++      }
++    };
++    await Promise.all(Array.from({ length: Math.min(6, wanted.length) }, worker));
++    for (const k of days) {
 +      if (!manifest.days[k]) { missingDays.push(k); continue; }
-+      let txt;
-+      try { txt = await a.readText(`${DAILY_DIR}/${k}.csv`); }
-+      catch (e) { throw new StoreError('read-failed', `Could not read ${k}.csv (${e.message || e.name}). If you use WorkDrive TrueSync, make sure the store folder is set to "available offline".`); }
++      const txt = texts.get(k);
 +      if (txt == null) { missingDays.push(k); continue; }
 +      storedDays.push(k);
 +      for (const [email, v] of parseDay(txt)) {
@@ -1711,8 +1932,8 @@ index 0000000..cc38781
 +  const Store = {
 +    StoreError, ADMIN_HASHES,
 +    _now: () => Date.now(),                    // overridable clock (tests)
-+    // folder
-+    isSupported, restoreFolder, reconnect, pickFolder, ensureWritable, useAdapter, isConnected, folderName,
++    // where the store lives / publishing settings
++    init, configure, getSettings, saveSettings, clearToken, configFileText, ensureWritable, useAdapter, isConnected, storeName, status,
 +    // admin
 +    verifyAdminPassword, adminLogin, exitAdmin, isAdmin,
 +    // data
@@ -1724,3 +1945,13 @@ index 0000000..cc38781
 +  };
 +  window.Store = Store;
 +})();
+diff --git a/store-config.json b/store-config.json
+new file mode 100644
+index 0000000..1f0e0c7
+--- /dev/null
++++ b/store-config.json
+@@ -0,0 +1,4 @@
++{
++  "repo": "",
++  "branch": "main"
++}
