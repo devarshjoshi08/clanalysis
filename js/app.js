@@ -430,6 +430,7 @@
         `Emails → Logged In (Mapping col C): ${result.otherCount.toLocaleString()}\n\n` +
         `Students in roster: ${result.totalStudents.toLocaleString()}\n` +
         `Marked Completed MAU: ${result.mauStudents.toLocaleString()}\n` +
+        `First MAU Date filled: ${(result.mauWithDate ?? 0).toLocaleString()}\n` +
         `Marked Logged In: ${result.logStudents.toLocaleString()}\n\n` +
         `MAU % cutoff (schools):\n${cutoffLines}` +
         repeatLines + pendingNote;

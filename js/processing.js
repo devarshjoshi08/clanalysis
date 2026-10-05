@@ -132,6 +132,48 @@ function saveFolderPickerSupported() {
   return typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
 }
 
+/**
+ * Parse a content-log 'Date' value into epoch ms (UTC), or null.
+ * Adobe exports ISO-8601 UTC with up to 9 fractional digits
+ * (e.g. 2026-08-06T06:39:42.000000055Z), which Date.parse doesn't reliably
+ * accept, so ISO is parsed by hand; anything else falls back to Date.parse.
+ * A timestamp with no zone is treated as UTC (that's what Adobe exports).
+ */
+function parseLogTimestamp(v) {
+  if (v === null || v === undefined) return null;
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v.getTime();
+  const s = String(v).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3})\d*)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+  if (m) {
+    const msPart = m[7] ? +(m[7] + '00').slice(0, 3) : 0;
+    let ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0), msPart);
+    if (m[8] && m[8].toUpperCase() !== 'Z') {
+      const sign = m[8][0] === '-' ? -1 : 1;
+      const d = m[8].slice(1).replace(':', '');
+      ms -= sign * ((+d.slice(0, 2)) * 60 + (+d.slice(2, 4))) * 60000;
+    }
+    return ms;
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? null : t;
+}
+
+/**
+ * Calendar date in India time (IST, UTC+5:30) for an epoch-ms timestamp,
+ * returned as a midnight-UTC Date so Excel shows exactly that day.
+ */
+const IST_OFFSET_MS = 330 * 60000;
+function toIstDate(ms) {
+  const d = new Date(ms + IST_OFFSET_MS);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/** dd-mm-yyyy text for a date cell value (used in CSV output). */
+function fmtDateCell(d) {
+  return `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${d.getUTCFullYear()}`;
+}
+
 /* ============================================================
  * FEATURE 1 — Email extractor
  * Required columns: 'Action', 'User Email'
@@ -141,6 +183,9 @@ function saveFolderPickerSupported() {
 async function extractEmails(files, onProgress, onStatus) {
   const allCreated = new Set();
   const allOther = new Set();
+  // lower-cased email → earliest Created / Created public link timestamp (ms)
+  // across all files. Used for the 'First MAU Date' column in Feature 3.
+  const firstMau = new Map();
   const fileStats = [];
 
   for (let i = 0; i < files.length; i++) {
@@ -173,6 +218,12 @@ async function extractEmails(files, onProgress, onStatus) {
       if (action === 'Created' || action === 'Created public link') {
         fileCreated.add(email);
         allCreated.add(email);
+        const ts = parseLogTimestamp(row['Date']);
+        if (ts !== null) {
+          const k = email.toLowerCase();
+          const prev = firstMau.get(k);
+          if (prev === undefined || ts < prev) firstMau.set(k, ts);
+        }
       } else {
         fileOther.add(email);
         allOther.add(email);
@@ -197,7 +248,7 @@ async function extractEmails(files, onProgress, onStatus) {
   const blob = await buildEmailWorkbook(createdList, otherList);
   const filename = `Processed_User_Emails_${dateStamp()}.xlsx`;
 
-  return { createdList, otherList, fileStats, blob, filename };
+  return { createdList, otherList, fileStats, blob, filename, firstMau };
 }
 
 async function buildEmailWorkbook(createdList, otherList) {
@@ -748,7 +799,9 @@ async function buildAdobeWorkbook(rawRows, summaries, mauDist) {
 }
 
 /** Student-level Raw_Data sheet (one row per student, with MAU/Login flags). */
-const PA_RAW_COLS = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'Project Name', 'schoolCode', 'district', 'state', 'class', 'section', 'Adobe Email', 'Completed MAU?', 'Logged In?'];
+const PA_RAW_COLS = ['LIC_Name', 'Project Lead_Name', 'Associate Manager_Name', 'Project Name', 'schoolCode', 'district', 'state', 'class', 'section', 'Adobe Email', 'Completed MAU?', 'First MAU Date', 'Logged In?'];
+// Columns holding real Excel dates (shown as dd-mm-yyyy).
+const PA_DATE_COLS = new Set(['First MAU Date']);
 // Repeated / Pending student lists also show last-week status.
 const PA_LIST_COLS = PA_RAW_COLS.concat(['Was MAU Last Week', 'MAU Status']);
 
@@ -756,6 +809,7 @@ const PA_LIST_COLS = PA_RAW_COLS.concat(['Was MAU Last Week', 'MAU Status']);
 function addRowSheet(wb, sheetName, cols, rows) {
   const ws = wb.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = cols.map(h => ({ header: h, key: h, width: Math.min(Math.max(h.length + 2, 12), 30) }));
+  cols.forEach((c, i) => { if (PA_DATE_COLS.has(c)) ws.getColumn(i + 1).numFmt = 'dd-mm-yyyy'; });
   const hr = ws.getRow(1);
   hr.eachCell(cell => { cell.fill = XL_TITLE_FILL; cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }; cell.alignment = XL_CENTER; });
   const data = (rows || []).map(r => cols.map(c => { const v = r[c]; return (v === undefined || v === null || v === '') ? null : v; }));
@@ -807,7 +861,7 @@ async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, othe
 
 /** CSV Blob for the given columns/rows (memory-cheap; used for the large Pending list). */
 function rowsToCsvBlob(cols, rows) {
-  const esc = v => { const s = (v === undefined || v === null) ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const esc = v => { const s = (v === undefined || v === null) ? '' : (v instanceof Date ? fmtDateCell(v) : String(v)); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const parts = [cols.map(esc).join(',')];
   for (const r of rows) parts.push(cols.map(c => esc(r[c])).join(','));
   return new Blob([parts.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -1064,6 +1118,7 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
   const otherList   = emailRes.otherList;     // → Mapping col C → 'Logged In?'
   const createdSet  = new Set(createdList.map(e => e.trim().toLowerCase()));
   const otherSet    = new Set(otherList.map(e => e.trim().toLowerCase()));
+  const firstMau    = emailRes.firstMau || new Map();   // email → earliest Created ts
 
   // 2. Load the roster (cached across runs; downloads + parses only when the
   //    template version changes).
@@ -1075,7 +1130,7 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
 
   // 3. Mark MAU / Login per student (replicates the template VLOOKUPs, case-insensitive).
   status('Marking Completed MAU? / Logged In? for each student…'); progress(56);
-  let mauYes = 0, logYes = 0;
+  let mauYes = 0, logYes = 0, mauDated = 0;
   for (const r of rosterRows) {
     const em = String(r[TEMPLATE_EMAIL_COL] == null ? '' : r[TEMPLATE_EMAIL_COL]).trim().toLowerCase();
     const mau = em !== '' && createdSet.has(em);
@@ -1084,6 +1139,11 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
     if (log) logYes++;
     r['Completed MAU?'] = mau ? 'Yes' : 'No';
     r['Logged In?'] = log ? 'Yes' : 'No';
+    // First MAU Date = IST calendar day of the student's earliest Created /
+    // Created public link action in the uploaded logs (blank if not MAU).
+    const fm = mau ? firstMau.get(em) : undefined;
+    r['First MAU Date'] = fm !== undefined ? toIstDate(fm) : '';
+    if (fm !== undefined) mauDated++;
   }
 
   // 3b. Optional week-over-week analysis: classify each student vs last week's MAU.
@@ -1138,6 +1198,7 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
     filename: adobeDefaultFilename(),
     totalStudents: rosterRows.length,
     mauStudents: mauYes,
+    mauWithDate: mauDated,
     logStudents: logYes,
     createdCount: createdList.length,
     otherCount: otherList.length,
