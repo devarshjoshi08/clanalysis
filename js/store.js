@@ -1,34 +1,29 @@
 /* ============================================================
  * store.js — Daily activity store + date-range MAU report (Tab 4)
  *
- * The store is a small public GitHub "data repo". Everyone reads it over plain HTTPS (no login, no Zoho);
- * admins add days / reset it from the page, which publishes one atomic commit (see "where the store lives").
- * Layout inside the data repo:
+ * The store is kept by a small "store service" (a free Cloudflare Worker with a database — see SETUP_CLOUDFLARE.md).
+ * Everyone reads it over plain HTTPS (no login, no Zoho); admins log in with a password that the SERVICE checks, then add
+ * days / reset it from the page (each is one all-or-nothing commit). Inside the store:
  *
  *   manifest.json            index of stored days
  *   daily/YYYY-MM-DD.csv     one file per IST day:  email,first_mau_ts,first_login_ts
- *   archive/YYYY-MM/...      created by an admin "Reset store" (nothing is ever deleted — git keeps history too)
+ *   archive/YYYY-MM/...      created by an admin "Reset store" (nothing is ever deleted)
  *
  * Only EARLIEST timestamps are kept per student per day, so adding the same raw
  * file twice (or overlapping files) can never double-count.
  *
  * All storage I/O goes through a small adapter (readText / writeText / exists / remove / probeWrite,
- * optional list / flush / discard) so the same code runs in the browser (HTTP + GitHub API) and in
+ * optional list / flush / discard) so the same code runs in the browser (HTTP to the service) and in
  * Node tests (fs).
  *
  * Depends on (loaded earlier): Papa (PapaParse) and window.Processing
  * (parseLogTimestamp, buildReportFromActivity).
- * No credential is stored in the code: an admin's GitHub token lives only in that admin's browser.
+ * No password and no key is stored in the code or in the page: the admin password lives only in the service.
  * ============================================================ */
 (function () {
   'use strict';
 
   /* ---------- constants ---------- */
-  // SHA-256 of the lower-cased admin passwords (the plain values are NOT in the code).
-  const ADMIN_HASHES = [
-    'c7bcbc30c7637ba219cf01ac67038bb82dd7dd02d046f3ff5a49dbdb02f8fb09',
-    '33abca26a552dc051412d73810df2e91fb8a58e09a53e56549b424dd7d660de4'
-  ];
   const MANIFEST = 'manifest.json';
   const DAILY_DIR = 'daily';
   const ARCHIVE_DIR = 'archive';
@@ -112,40 +107,60 @@
   function countMau(map) { let n = 0; for (const v of map.values()) if (v.mau != null) n++; return n; }
 
   /* ---------- where the store lives ---------- */
-  // Readers (everyone, no login): plain HTTPS GET of  <base>manifest.json  and  <base>daily/YYYY-MM-DD.csv
-  //   from a public GitHub "data repo" (served by raw.githubusercontent.com unless dataBaseUrl says otherwise).
-  // Admins: one atomic commit per Add / Reset through the GitHub Git Data API, using a fine-grained token
-  //   that lives only in that admin's browser (localStorage) — never in the code.
-  const DEFAULT_CFG = { repo: '', branch: 'main', dataBaseUrl: '', apiBase: 'https://api.github.com', rawBase: 'https://raw.githubusercontent.com' };
-  const LS_KEY = 'cla_publish';
-  const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-  let _cfg = { ...DEFAULT_CFG };          // effective settings
-  let _token = '';
-  let _fetch = (...a) => fetch(...a);     // overridable (tests)
-  let _override = null;                   // tests: one ready-made adapter used for reads AND writes
-  let _reader = null, _writer = null, _storeName = '', _cfgSource = 'none';
-  let _admin = false, _fails = 0, _lockUntil = 0;
+  // Everyone reads — and admins change — ONE shared store kept by a small "store service" (a Cloudflare Worker with a
+  // database: see SETUP_CLOUDFLARE.md). The only setting is the service's web address; it is committed as
+  // store-config.json next to index.html, so every visitor's page picks it up by itself.
+  //   readers : plain GET  <service>/v1/file/manifest.json  and  <service>/v1/file/daily/YYYY-MM-DD.csv    (no login)
+  //   admins  : log in with a password that the SERVICE checks (the page holds no password and no key) and get a
+  //             12-hour session for this browser tab; each Add / Reset is sent as ONE all-or-nothing commit.
+  const LS_KEY = 'cla_service';             // this browser's own copy of the service address (used only when store-config.json has none)
+  const SS_KEY = 'cla_admin_session';       // this tab's admin session  { token, exp, service }
+  const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/i;
+  let _cfg = { service: '' };               // effective settings
+  let _token = '', _exp = 0;                // admin session (token + when it ends, by THIS computer's clock)
+  let _fetch = (...a) => fetch(...a);       // overridable (tests)
+  let _override = null;                     // tests: one ready-made adapter used for reads AND writes
+  let _reader = null, _writer = null, _storeName = '', _cfgSource = 'none', _fileService = '', _cfgProblem = '';
+  let _admin = false, _fails = 0, _lockUntil = 0;           // _fails/_lockUntil: only the built-in test login uses them
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const encPath = p => p.split('/').map(encodeURIComponent).join('/');
-  function lsGet() { try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (_) { return null; } }
-  function lsSet(o) { try { if (o) localStorage.setItem(LS_KEY, JSON.stringify(o)); else localStorage.removeItem(LS_KEY); return true; } catch (_) { return false; } }
-  const withCb = u => u + (u.includes('?') ? '&' : '?') + 'cb=' + Date.now();      // busts browser/proxy caches (NOT GitHub's file CDN — that is why reads are pinned to a commit)
+  function lsGet() { try { return String(localStorage.getItem(LS_KEY) || ''); } catch (_) { return ''; } }
+  function lsSet(v) { try { if (v) localStorage.setItem(LS_KEY, v); else localStorage.removeItem(LS_KEY); return true; } catch (_) { return false; } }
+  function ssGet() { try { return JSON.parse(sessionStorage.getItem(SS_KEY) || 'null'); } catch (_) { return null; } }
+  function ssSet(o) { try { if (o) sessionStorage.setItem(SS_KEY, JSON.stringify(o)); else sessionStorage.removeItem(SS_KEY); } catch (_) { /* private mode etc. — the session just won't survive a reload */ } }
+  const withCb = u => u + (u.includes('?') ? '&' : '?') + 'cb=' + Date.now();      // only for the small config file (same site)
+
+  /** "https://x.workers.dev/", "x.workers.dev", "https://x.workers.dev/v1/ping" → "https://x.workers.dev". */
+  function normalizeService(raw) {
+    let s = String(raw == null ? '' : raw).trim();
+    if (!s) return '';
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = 'https://' + s;
+    s = s.replace(/[?#].*$/, '').replace(/\/v1(\/.*)?$/i, '').replace(/\/+$/, '');
+    const m = /^(https?):\/\/([^/]+)$/i.exec(s);
+    if (!m || !HOST_RE.test(m[2])) throw new StoreError('bad-service', 'That doesn’t look like a web address. It should look like https://your-name.workers.dev');
+    const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(m[2]);
+    if (m[1].toLowerCase() === 'http' && !local) throw new StoreError('bad-service', 'The address must start with https://');
+    return m[1].toLowerCase() + '://' + m[2].toLowerCase();
+  }
 
   function requireAdapter() {
     const a = _override || _reader;
-    if (!a) throw new StoreError('not-configured', "The shared store isn't set up yet. An admin needs to finish the one-time setup (see Publishing settings).");
+    if (!a) throw new StoreError('not-configured', "The shared store isn't connected yet. An admin needs to enter the store service address once (Check connection).");
     return a;
   }
+  function endSession() { _token = ''; _exp = 0; _admin = false; _writer = null; ssSet(null); }
   function requireWriter() {
     if (_override) return _override;
-    if (!_cfg.repo || !REPO_RE.test(_cfg.repo)) throw new StoreError('not-configured', 'Publishing settings are incomplete: enter the data repository as owner/name.');
-    if (!_token) throw new StoreError('no-token', 'Add your GitHub token in Publishing settings first.');
-    if (!_writer) _writer = githubWriter();
+    if (!_cfg.service) throw new StoreError('not-configured', "The shared store isn't connected yet. Enter the store service address with “Check connection” first.");
+    requireAdmin();
+    if (!_writer) _writer = serviceWriter();
     return _writer;
   }
   function requireAdmin() {
-    if (!_admin) throw new StoreError('not-admin', 'Admin login required.');
+    if (isAdmin()) return;
+    if (_token || _admin) { endSession(); throw new StoreError('session-expired', 'Your admin session has ended. Log in again.'); }
+    throw new StoreError('not-admin', 'Admin login required.');
   }
   function isWriteDenied(e) {
     const n = e && e.name, m = String((e && (e.message || e.code)) || '');
@@ -158,148 +173,156 @@
     catch (e) { if (e instanceof StoreError) throw e; if (isWriteDenied(e)) throw new StoreError('read-only', READ_ONLY_MSG); throw e; }
   }
 
-  /* ---------- reading (everyone) ---------- */
-  /** GET text; 404 → null. Retries a few times on network errors / 429 / 5xx. */
-  async function httpGetText(url) {
+  /* ---------- talking to the service ---------- */
+  /** One request. Network failures become a friendly StoreError. */
+  async function svc(path, init) {
+    try { return await _fetch(_cfg.service + path, { cache: 'no-store', ...init }); }
+    catch (e) { throw new StoreError('network', `Could not reach the store service (${(e && e.message) || 'network error'}). Check your internet connection, then press Refresh.`); }
+  }
+  async function bodyJson(res) { try { return await res.json(); } catch (_) { return null; } }
+  const authHeader = () => (_token ? { Authorization: 'Bearer ' + _token } : {});
+  const NOT_A_SERVICE = "That address answered, but it isn't the store service. Check the address under “Check connection”.";
+
+  /** The service's refusal → a StoreError with a plain-English message (body = its JSON, if any). */
+  function serviceError(res, body, what) {
+    const code = body && body.code, msg = body && body.message;
+    if (res.status === 401) {
+      if (code === 'admin-only') return new StoreError('admin-only', msg || 'Only an admin can read that.');
+      endSession();
+      return new StoreError('session-expired', 'Your admin session has ended. Log in again.');
+    }
+    if (res.status === 409) return new StoreError('conflict', 'Someone else changed the store at the same moment.');
+    if (res.status === 413) return new StoreError('too-big', msg || 'That is too much data for the store in one go.');
+    if (res.status === 429) return new StoreError('rate-limit', msg || 'The service is busy — wait a minute and try again.');
+    if (res.status === 503 && (code === 'no-database' || code === 'not-set-up')) return new StoreError(code, `The store service isn't finished being set up. ${msg || ''}`.trim());
+    if (res.status === 404 && !code) return new StoreError('not-a-service', NOT_A_SERVICE);
+    if (res.status >= 500 && !code) return new StoreError('network', `The store service isn't answering right now (HTTP ${res.status}). Please try again in a minute.`);
+    return new StoreError('service', (msg || `The store service answered HTTP ${res.status}`) + (what ? ` (while trying to ${what})` : ''));
+  }
+
+  /**
+   * Fetch one stored file.  → { text | null (not stored), version }.  Every answer from the service carries the store's
+   * version number; an answer without one did not come from the service (e.g. a wrong address), so it is refused rather
+   * than mistaken for "empty store".
+   */
+  async function fetchFile(path, auth) {
     let last = null;
     for (let i = 0; i < 3; i++) {
       let res;
-      try { res = await _fetch(withCb(url), { cache: 'no-store' }); }
+      try { res = await svc('/v1/file/' + encPath(path), { headers: auth ? authHeader() : {} }); }
       catch (e) { last = e; await sleep(300 * (i + 1)); continue; }
-      if (res.status === 404) return null;
-      if (res.ok) return await res.text();
-      if (res.status === 429 || res.status >= 500) { last = new Error(`HTTP ${res.status}`); await sleep(600 * (i + 1)); continue; }
-      throw new StoreError('http', `Could not load ${url.split('/').slice(-2).join('/')} (HTTP ${res.status}).`);
+      const v = res.headers.get('x-store-version');
+      if (res.status === 200 || res.status === 404) {
+        if (v === null || !/^\d+$/.test(v)) throw new StoreError('not-a-service', NOT_A_SERVICE);
+        return { text: res.status === 200 ? await res.text() : null, version: parseInt(v, 10) };
+      }
+      const body = await bodyJson(res);
+      if ((res.status === 429 || res.status >= 500) && !(body && (body.code === 'no-database' || body.code === 'not-set-up'))) {
+        last = new Error(`HTTP ${res.status}`); await sleep(600 * (i + 1)); continue;
+      }
+      throw serviceError(res, body, 'read ' + path.split('/').pop());
     }
-    throw new StoreError('network', `Could not reach the store (${(last && last.message) || 'network error'}). Check your internet connection and press Refresh.`);
+    throw new StoreError('network', `Could not reach the store service (${(last && last.message) || 'network error'}). Check your internet connection, then press Refresh.`);
   }
-  function readBase() {
-    let b = _cfg.dataBaseUrl || (_cfg.repo ? `${_cfg.rawBase}/${_cfg.repo}/${encPath(_cfg.branch || 'main')}/` : '');
-    if (b && !b.endsWith('/')) b += '/';
-    return b;
-  }
+
   /**
-   * Reader for everyone (no login). raw.githubusercontent.com keeps every file for ~5 minutes and ignores ?query
-   * strings, so reading "the main branch" can show yesterday's data right after an admin published. To avoid that,
-   * a GitHub repo is read at an exact COMMIT: the latest commit id is looked up first (one tiny API call), then every
-   * file is fetched from that commit's own URL — those never go stale and the manifest + day files always match.
-   * If the lookup fails (e.g. GitHub's anonymous rate limit), it quietly falls back to the branch URL.
-   * `pin` = { repo, branch } for a GitHub repo, or null for a plain base URL.
+   * Reader for everyone (no login).  head() = the store version the latest manifest came from; at(v) = a reader that
+   * insists every file belongs to that same version (so a report never mixes two states of the store — if an admin
+   * publishes in the middle, it throws 'changed' and the report simply reads again).
    */
-  function remoteReader(base, pin) {
-    let head = null, headAt = 0, known = null;                // head = commit id currently read; known = our own latest publish
-    const HEAD_TTL = 60 * 1000, KNOWN_TTL = 90 * 1000;
-    const pinned = sha => `${_cfg.rawBase}/${pin.repo}/${sha}/`;
-    const make = root => ({
+  function serviceReader() {
+    let manifestVersion = null;
+    const make = pinned => ({
       remote: true,
-      async readText(path) { return httpGetText(root() + encPath(path)); },
+      async readText(path) {
+        const r = await fetchFile(path, false);
+        if (pinned != null && r.version !== pinned) throw new StoreError('changed', 'The store was updated while this was loading.');
+        if (pinned == null && path === MANIFEST) manifestVersion = r.version;
+        return r.text;
+      },
       async exists(path) { return (await this.readText(path)) !== null; }
     });
-    const r = make(() => (pin && head) ? pinned(head) : base);
-    /** Find the newest commit. `force` skips the 60-second memory (Refresh button). Returns the commit id or null. */
-    r.resolveHead = async function (force) {
-      if (!pin) return null;
-      const now = Date.now();
-      if (known && now < known.until) { head = known.sha; headAt = now; return head; }
-      if (!force && head && now - headAt < HEAD_TTL) return head;
-      try {
-        const res = await _fetch(`${_cfg.apiBase}/repos/${pin.repo}/commits/${encodeURIComponent(pin.branch)}`, {
-          cache: 'no-store',
-          headers: { Accept: 'application/vnd.github.sha', ...(_token ? { Authorization: `Bearer ${_token}` } : {}) }
-        });
-        if (res.ok) {
-          const t = (await res.text()).trim();
-          if (/^[0-9a-f]{40}$/i.test(t)) { head = t; headAt = Date.now(); return head; }
-        }
-      } catch (_) { /* fall back below */ }
-      head = null; headAt = 0;
-      return null;
-    };
-    r.head = () => head;
-    /** The admin's own publish: show it right away instead of waiting for GitHub's caches. */
-    r.note = sha => { if (pin && /^[0-9a-f]{40}$/i.test(sha || '')) { known = { sha, until: Date.now() + KNOWN_TTL }; head = sha; headAt = Date.now(); } };
-    /** A reader fixed to one commit (so a report reads exactly the data its manifest described). */
-    r.at = sha => (pin && sha) ? make(() => pinned(sha)) : r;
+    const r = make(null);
+    r.head = () => manifestVersion;
+    r.at = v => (v == null ? r : make(v));
     return r;
   }
 
-  /* ---------- publishing (admins) ---------- */
-  async function ghError(res, what) {
-    let msg = '';
-    try { msg = (await res.json()).message || ''; } catch (_) { /* not json */ }
-    const repo = _cfg.repo;
-    if (res.status === 401) return new StoreError('bad-token', "GitHub didn't accept the token (wrong or expired). Open Publishing settings and paste a new one.");
-    if (res.status === 403) {
-      if (res.headers && res.headers.get && res.headers.get('x-ratelimit-remaining') === '0') return new StoreError('rate-limit', 'GitHub is rate-limiting requests right now. Wait a few minutes and try again.');
-      return new StoreError('no-write', `The token isn't allowed to ${what || 'change'} ${repo}. It needs access to that repository with "Contents: Read and write".`);
-    }
-    if (res.status === 404) return new StoreError('no-repo', `GitHub can't find ${repo}, or the token has no access to it. Check the name and token in Publishing settings.`);
-    if (res.status === 409 || (res.status === 422 && /fast.?forward/i.test(msg))) return new StoreError('conflict', 'Someone else published at the same moment.');
-    return new StoreError('github', `GitHub said: ${msg || ('HTTP ' + res.status)}${what ? ` (while trying to ${what})` : ''}`);
-  }
-
-  /** Write adapter: reads are authenticated and fresh; writes are buffered and pushed by flush() as ONE commit. */
-  function githubWriter() {
-    const repo = _cfg.repo, branch = _cfg.branch || 'main';
-    const pending = new Map();                          // path → {content} | {del:true}
-    async function api(method, path, body, accept) {
-      try {
-        return await _fetch(`${_cfg.apiBase}${path}`, {
-          method, cache: 'no-store',
-          headers: {
-            Authorization: `Bearer ${_token}`, Accept: accept || 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
-            ...(body ? { 'Content-Type': 'application/json' } : {})
-          },
-          body: body ? JSON.stringify(body) : undefined
-        });
-      } catch (e) { throw new StoreError('network', `Could not reach GitHub (${e.message || 'network error'}). Check your internet connection.`); }
-    }
-    const must = async (res, what) => { if (!res.ok) throw await ghError(res, what); return res.json(); };
-    const refPath = `/repos/${repo}/git/refs/heads/${encPath(branch)}`;
+  /** Write adapter for an admin: reads are authenticated; writes are buffered and sent by flush() as ONE commit. */
+  function serviceWriter() {
+    const pending = new Map();                          // path → text | null (null = remove)
+    let base = null;                                    // the store version everything we read belongs to
+    const note = v => {
+      if (base === null) base = v;
+      else if (base !== v) throw new StoreError('conflict', 'Someone else changed the store while this was running.');
+    };
     return {
       remote: true,
       async readText(path) {
-        if (pending.has(path)) { const v = pending.get(path); return v.del ? null : v.content; }
-        const res = await api('GET', `/repos/${repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`, null, 'application/vnd.github.raw+json');
-        if (res.status === 404) return null;
-        if (!res.ok) throw await ghError(res, 'read');
-        return res.text();
+        if (pending.has(path)) return pending.get(path);
+        const r = await fetchFile(path, true);
+        note(r.version);
+        return r.text;
       },
       async exists(path) { return (await this.readText(path)) !== null; },
-      async writeText(path, text) { pending.set(path, { content: text }); },
-      async remove(path) { pending.set(path, { del: true }); },
-      /** Checks the token can reach the repo and (when GitHub says) push to it. No change is made. */
+      async writeText(path, text) { pending.set(path, text); },
+      async remove(path) { pending.set(path, null); },
+      /** Confirms the admin session is still valid. No change is made. */
       async probeWrite() {
-        const res = await api('GET', `/repos/${repo}`);
-        const info = await must(res, 'access');
-        if (info && info.permissions && info.permissions.push === false) throw new StoreError('no-write', `The token can read ${repo} but not change it. It needs "Contents: Read and write".`);
-        return info;
+        const res = await svc('/v1/whoami', { headers: authHeader() });
+        const body = await bodyJson(res);
+        if (!res.ok) throw serviceError(res, body, 'check your admin session');
+        return body;
       },
       async flush(message) {
         if (!pending.size) return null;
-        let res = await api('GET', `/repos/${repo}/git/ref/heads/${encPath(branch)}`);
-        if (res.status === 404 || res.status === 409) throw new StoreError('no-branch', `Branch “${branch}” doesn't exist in ${repo}. Create the repository with a README so it has a ${branch} branch.`);
-        const head = (await must(res, 'read the branch')).object.sha;
-        const baseTree = (await must(await api('GET', `/repos/${repo}/git/commits/${head}`), 'read the branch')).tree.sha;
-        const dels = [...pending].filter(([, v]) => v.del).map(([p]) => p);
-        let existing = new Set();
-        if (dels.length) existing = new Set((await must(await api('GET', `/repos/${repo}/git/trees/${baseTree}?recursive=1`), 'read the store')).tree.map(t => t.path));
-        const tree = [];
-        for (const [p, v] of pending) {
-          if (v.del) { if (existing.has(p)) tree.push({ path: p, mode: '100644', type: 'blob', sha: null }); }
-          else tree.push({ path: p, mode: '100644', type: 'blob', content: v.content });
+        if (base === null) {                            // nothing was read first: take the current version
+          const res = await svc('/v1/whoami', { headers: authHeader() });
+          const body = await bodyJson(res);
+          if (!res.ok) throw serviceError(res, body, 'publish');
+          base = body.version;
         }
-        if (!tree.length) { pending.clear(); return null; }
-        const newTree = (await must(await api('POST', `/repos/${repo}/git/trees`, { base_tree: baseTree, tree }), 'write')).sha;
-        const commit = (await must(await api('POST', `/repos/${repo}/git/commits`, { message, tree: newTree, parents: [head] }), 'write')).sha;
-        res = await api('PATCH', refPath, { sha: commit, force: false });
-        if (!res.ok) throw await ghError(res, 'write');
-        pending.clear();
-        if (_reader && _reader.note) _reader.note(commit);        // our own page shows the new data immediately
-        return { commit };
+        // 1) upload each file on its own (small requests — the free Cloudflare plan allows little work per request);
+        //    nothing is visible to anyone yet.  2) one small commit makes all of them live at once, or none of them.
+        const cid = newCommitId();
+        const writes = [...pending].filter(([, t]) => t !== null), deletes = [...pending].filter(([, t]) => t === null).map(([p]) => p);
+        let next = 0;
+        const upload = async () => {
+          while (next < writes.length) {
+            const [p, t] = writes[next++];
+            await sendStaged(cid, p, t);
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(4, writes.length) }, upload));
+        const res = await svc('/v1/commit', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({ base, cid, message, files: writes.map(([p]) => p), deletes }) });
+        const body = await bodyJson(res);
+        if (!res.ok || !body || !body.ok) throw serviceError(res, body, 'publish');
+        pending.clear(); base = null;
+        return { commit: body.version };
       },
-      discard() { pending.clear(); }
+      discard() { pending.clear(); base = null; }
     };
+  }
+  function newCommitId() {
+    const b = new Uint8Array(16);
+    (globalThis.crypto && globalThis.crypto.getRandomValues) ? globalThis.crypto.getRandomValues(b) : b.forEach((_, i) => { b[i] = Math.floor(Math.random() * 256); });
+    return [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+  /** Upload one file into the service's holding area (retried a few times on network trouble — uploading twice is harmless). */
+  async function sendStaged(cid, path, text) {
+    let last = null;
+    for (let i = 0; i < 3; i++) {
+      let res;
+      try {
+        res = await svc(`/v1/stage?cid=${cid}&path=${encodeURIComponent(path)}`, { method: 'POST', headers: { 'Content-Type': 'text/plain; charset=utf-8', ...authHeader() }, body: text });
+      } catch (e) { last = e; await sleep(400 * (i + 1)); continue; }
+      if (res.ok) return;
+      const body = await bodyJson(res);
+      if (res.status >= 500 && !(body && (body.code === 'no-database' || body.code === 'not-set-up'))) { last = new Error(`HTTP ${res.status}`); await sleep(600 * (i + 1)); continue; }
+      throw serviceError(res, body, 'upload ' + path.split('/').pop());
+    }
+    throw last instanceof StoreError ? last : new StoreError('network', `Could not reach the store service (${(last && last.message) || 'network error'}). Check your internet connection and try again.`);
   }
   /** Re-run a read-modify-write when someone else published in between (idempotent merges make this safe). */
   async function withConflictRetry(a, fn) {
@@ -316,64 +339,87 @@
   /* ---------- settings / start-up ---------- */
   function status() {
     return {
-      configured: !!(_override || _reader), canPublish: !!(_override || (_cfg.repo && REPO_RE.test(_cfg.repo) && _token)),
-      repo: _cfg.repo, branch: _cfg.branch, hasToken: !!_token, source: _cfg.dataBaseUrl ? 'url' : (_cfg.repo ? 'repo' : 'none'), cfgSource: _cfgSource
+      configured: !!(_override || _reader), canPublish: !!(_override || (_cfg.service && isAdmin())),
+      service: _cfg.service, fileService: _fileService, cfgSource: _cfgSource, hasSession: !!(_override ? _admin : _token)
     };
   }
   function rebuild() {
     _writer = null; _reader = null;
-    const base = readBase();
-    if (base) _reader = remoteReader(base, (!_cfg.dataBaseUrl && _cfg.repo && REPO_RE.test(_cfg.repo)) ? { repo: _cfg.repo, branch: _cfg.branch || 'main' } : null);
+    if (_cfg.service) _reader = serviceReader();
   }
   /**
-   * Called once on page load. Settings come from store-config.json (next to index.html, committed with the site)
-   * and, for admins, from this browser's own saved Publishing settings.
+   * Called once on page load. The service address comes from store-config.json (next to index.html, committed with the
+   * site — so everyone gets it) or, only when that file has none, from this browser's own saved copy.
+   * An admin session that is still valid for this tab (sessionStorage) is picked up again after a reload.
    */
   async function init(opts) {
     opts = opts || {};
     if (opts.fetch) _fetch = opts.fetch;
-    const fileCfg = {};
-    try {
-      const txt = opts.configUrl === null ? null : await httpGetText(opts.configUrl || 'store-config.json');
-      if (txt) {
+    _cfgSource = 'none'; _fileService = ''; _cfgProblem = ''; _cfg = { service: '' };
+    try { localStorage.removeItem('cla_publish'); } catch (_) { /* the old GitHub version kept a token here — never needed again */ }
+    let txt = null;
+    try { txt = opts.configUrl === null ? null : await configText(opts.configUrl || 'store-config.json'); } catch (_) { txt = null; }
+    if (txt) {                                    // a missing file is fine; a file that can't be read is worth saying out loud
+      try {
         const j = JSON.parse(txt);
-        for (const k of ['repo', 'branch', 'dataBaseUrl']) if (typeof j[k] === 'string' && j[k].trim()) fileCfg[k] = j[k].trim();
-        if (Object.keys(fileCfg).length) _cfgSource = 'file';
+        if (j && typeof j.service === 'string' && j.service.trim()) _fileService = normalizeService(j.service);
+      } catch (e) {
+        _fileService = '';
+        _cfgProblem = 'The website’s store-config.json could not be read' + (e && e.code === 'bad-service' ? ' (the address in it is not valid)' : '') +
+          '. It must look exactly like {"service": "https://your-name.workers.dev"} with straight quotes.';
       }
-    } catch (_) { /* no / bad config file → fall through */ }
-    const local = lsGet() || {};
-    _token = typeof local.token === 'string' ? local.token : '';
-    _cfg = { ...DEFAULT_CFG, ...(opts.defaults || {}), ...fileCfg };
-    if (local.repo && REPO_RE.test(local.repo)) { _cfg.repo = local.repo; _cfgSource = 'local'; }
-    if (local.branch) _cfg.branch = local.branch;
+    }
+    if (_fileService) { _cfg.service = _fileService; _cfgSource = 'file'; }
+    else if (opts.service) { _cfg.service = normalizeService(opts.service); _cfgSource = 'local'; }
+    else {
+      const local = lsGet();
+      if (local) { try { _cfg.service = normalizeService(local); _cfgSource = 'local'; } catch (_) { lsSet(''); } }
+    }
+    _token = ''; _exp = 0; _admin = false;
+    const s = ssGet();
+    if (_cfg.service && s && s.token && s.service === _cfg.service && s.exp > Store._now()) { _token = s.token; _exp = s.exp; _admin = true; }
+    else if (s) ssSet(null);
     rebuild();
+    if (_admin && !opts.noVerify) {               // is that session still good? (a service restart / password change ends sessions)
+      try { const r = await svc('/v1/whoami', { headers: authHeader() }); if (r.status === 401) endSession(); } catch (_) { /* offline: keep it; the first admin action will say what is wrong */ }
+    }
     return status();
+  }
+  /** store-config.json is a small file on the same site; one cache-busted read, no retries needed. */
+  async function configText(url) {
+    const res = await _fetch(withCb(url), { cache: 'no-store' });
+    return res.ok ? await res.text() : null;
   }
   /** Direct configuration (tests / embedding). */
   function configure(o) {
     o = o || {};
     if (o.fetch) _fetch = o.fetch;
-    for (const k of ['repo', 'branch', 'dataBaseUrl', 'apiBase', 'rawBase']) if (o[k] !== undefined) _cfg[k] = o[k];
-    if (o.token !== undefined) _token = o.token;
+    if (o.service !== undefined) { _cfg.service = normalizeService(o.service); _cfgSource = _cfg.service ? 'local' : 'none'; }
+    if (o.token !== undefined) { _token = o.token || ''; _exp = _token ? Store._now() + 12 * 3600 * 1000 : 0; _admin = !!_token; }
     rebuild();
     return status();
   }
-  function getSettings() { return { repo: _cfg.repo, branch: _cfg.branch, hasToken: !!_token, fileRepo: _cfgSource === 'file' ? _cfg.repo : '' }; }
-  /** Save this browser's Publishing settings. token === '' keeps the saved token; token === null removes it. */
+  function getSettings() { return { service: _cfg.service, fileService: _fileService, cfgSource: _cfgSource }; }
+  /** Save this browser's copy of the service address (everyone else gets it from store-config.json). */
   function saveSettings(s) {
-    const repo = String((s && s.repo) || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
-    const branch = String((s && s.branch) || '').trim() || 'main';
-    if (!REPO_RE.test(repo)) throw new StoreError('bad-repo', 'Enter the data repository as owner/name, for example myorg/clanalysis-data.');
-    const token = s && s.token === null ? '' : (s && s.token ? String(s.token).trim() : _token);
-    _token = token; _cfg.repo = repo; _cfg.branch = branch; _cfgSource = 'local';
-    const saved = lsSet({ repo, branch, token });
+    const service = normalizeService(s && s.service);
+    if (!service) throw new StoreError('bad-service', 'Enter the store service address (it looks like https://your-name.workers.dev).');
+    if (service !== _cfg.service) endSession();
+    _cfg.service = service;
+    let saved;
+    if (service === _fileService) { _cfgSource = 'file'; lsSet(''); saved = true; }      // the website already says this — no private copy needed
+    else { _cfgSource = 'local'; saved = lsSet(service); }
     rebuild();
-    return { saved, ...status() };
+    return { saved, service, ...status() };
   }
-  function clearToken() { _token = ''; const l = lsGet() || {}; lsSet({ repo: l.repo || _cfg.repo, branch: l.branch || _cfg.branch, token: '' }); rebuild(); }
-  /** The one line everyone else's page needs (commit it as store-config.json next to index.html). */
-  function configFileText() { return JSON.stringify({ repo: _cfg.repo, branch: _cfg.branch }, null, 2) + '\n'; }
-  /** Admin actions call this first: confirms there is a token and that it can reach the repo. */
+  /** Forget this browser's own copy (the page then uses store-config.json again, if it names a service). */
+  function clearSettings() {
+    lsSet('');
+    if (_cfgSource === 'local') { endSession(); _cfg.service = _fileService; _cfgSource = _fileService ? 'file' : 'none'; rebuild(); }
+  }
+  /** The one line everyone else's page needs (committed as store-config.json next to index.html). */
+  function configFileText() { return JSON.stringify({ service: _cfg.service }, null, 2) + '\n'; }
+  /** Admin actions call this first: confirms the admin session is still valid. */
   async function ensureWritable() {
     const a = requireWriter();
     await guardedWrite(() => a.probeWrite());
@@ -382,7 +428,43 @@
   /** For tests / embedding: use any adapter object (reads AND writes) instead of the network. */
   function useAdapter(adapter, name) { _override = adapter; _storeName = name || 'test-store'; }
   function isConnected() { return !!(_override || _reader); }
-  function storeName() { return _storeName || _cfg.repo || ''; }
+  function storeName() { return _storeName || (_cfg.service ? _cfg.service.replace(/^https?:\/\//, '') : ''); }
+
+  /**
+   * "Check connection" for the page: walks through what has to be true and says which step is broken.
+   * → { ok, steps:[{ok,label,detail}], version }
+   */
+  async function diagnose() {
+    const steps = [];
+    const add = (ok, label, detail) => steps.push({ ok: !!ok, label, detail: detail || '' });
+    const done = () => ({ ok: steps.every(s => s.ok), steps, version });
+    let version = null;
+    if (_override) { add(true, 'Using a built-in test store'); return done(); }
+    if (_cfgProblem) add(false, 'The website’s store-config.json', _cfgProblem);
+    if (!_cfg.service) { add(false, 'Store service address', 'Not entered yet — paste the address from Cloudflare into the box above.'); return done(); }
+    add(true, 'Store service address', _cfg.service);
+    let info = null;
+    try {
+      const res = await svc('/v1/ping');
+      info = await bodyJson(res);
+      if (!res.ok || !info || info.service !== 'cla-store') { add(false, 'It is the store service', NOT_A_SERVICE); return done(); }
+    } catch (e) {
+      add(false, 'This browser can reach the service', e.message + ' If the address is right, the service may be switched off or blocked by your network.');
+      return done();
+    }
+    add(true, 'This browser can reach the service');
+    version = info.version;
+    add(info.database, 'Database is connected', info.database ? '' : (info.problems || []).find(p => /database|D1/i.test(p)) || 'In Cloudflare, add the D1 database to the Worker (variable name DB).');
+    add(info.passwords, 'Admin passwords are set', info.passwords ? '' : 'In Cloudflare, add the secret ADMIN_PASSWORDS to the Worker.');
+    if (info.database) {
+      try {
+        const m = await loadManifest();
+        const n = Object.keys(m.days).length;
+        add(true, 'The store can be read', n ? `${n} day${n === 1 ? '' : 's'} stored` : 'It is empty — an admin can add files.');
+      } catch (e) { add(false, 'The store can be read', e.message); }
+    }
+    return done();
+  }
 
   /* ---------- admin ---------- */
   async function sha256Hex(str) {
@@ -391,11 +473,11 @@
     const buf = await c.subtle.digest('SHA-256', new TextEncoder().encode(str));
     return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
   }
+  /** Only used when a ready-made adapter is plugged in (the automated tests); the real password is checked by the service. */
   async function verifyAdminPassword(input) {
-    return ADMIN_HASHES.includes(await sha256Hex(String(input == null ? '' : input).trim().toLowerCase()));
+    return Store._testAdminHashes.includes(await sha256Hex(String(input == null ? '' : input).trim().toLowerCase()));
   }
-  /** Check the password with a 3-tries / 30-second lockout. Admin mode lasts until exitAdmin() or page close. */
-  async function adminLogin(input) {
+  async function localLogin(input) {
     const now = Store._now();
     if (now < _lockUntil) {
       const s = Math.ceil((_lockUntil - now) / 1000);
@@ -408,8 +490,38 @@
     }
     return { ok: false, message: 'Incorrect admin password.' };
   }
-  function exitAdmin() { _admin = false; }
-  function isAdmin() { return _admin; }
+  /**
+   * Log in as admin. The password goes to the store service over https and is checked THERE (3-5 wrong tries lock that
+   * visitor out for a couple of minutes). Success gives a 12-hour session for this browser tab.
+   * → { ok } | { ok:false, message, locked?, secondsLeft?, triesLeft? }
+   */
+  async function adminLogin(input) {
+    if (_override) return localLogin(input);
+    if (!_cfg.service) return { ok: false, code: 'not-configured', message: 'The store service address is not set yet. Use “Check connection” first.' };
+    let res;
+    try { res = await svc('/v1/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: String(input == null ? '' : input) }) }); }
+    catch (e) { return { ok: false, code: 'network', message: e.message }; }
+    const body = await bodyJson(res);
+    if (res.ok && body && body.token) {
+      _token = body.token; _exp = Store._now() + (Number(body.expiresIn) || 43200) * 1000; _admin = true; _writer = null;
+      ssSet({ token: _token, exp: _exp, service: _cfg.service });
+      return { ok: true };
+    }
+    if (res.status === 429) {
+      const s = Number(body && body.retryAfter) || Number(res.headers.get('retry-after')) || 60;
+      return { ok: false, locked: true, secondsLeft: s, message: (body && body.message) || `Too many wrong tries. Try again in ${s}s.` };
+    }
+    if (res.status === 401) return { ok: false, message: 'Incorrect admin password.', triesLeft: body && body.triesLeft };
+    if (res.status === 404 && !(body && body.code)) return { ok: false, code: 'not-a-service', message: NOT_A_SERVICE };
+    if (body && body.message) return { ok: false, code: body.code, message: body.message };
+    return { ok: false, message: `The store service answered HTTP ${res.status}.` };
+  }
+  function exitAdmin() { endSession(); }
+  /** True while this page holds a valid admin session (no side effects: an ended session is cleared by the next admin action or by exitAdmin()). */
+  function isAdmin() {
+    if (_override) return _admin;
+    return _admin && !(_exp && Store._now() >= _exp);
+  }
 
   /* ---------- manifest + summary ---------- */
   const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.csv$/;
@@ -420,7 +532,6 @@
    */
   async function loadManifest(adapterOpt, force) {
     const a = adapterOpt || requireAdapter();
-    if (!adapterOpt && typeof a.resolveHead === 'function') await a.resolveHead(!!force);     // newest commit (see remoteReader)
     let m = null;
     const txt = await a.readText(MANIFEST);
     if (txt && txt.trim()) { try { m = JSON.parse(txt); } catch (_) { m = null; } }
@@ -435,7 +546,7 @@
         m.days[k] = { students: mp.size, mau: countMau(mp), rawRows: 0, files: [], minTs: null, maxTs: null, updatedAt: null, recovered: true };
       }
     }
-    if (a.head) Object.defineProperty(m, '_head', { value: a.head(), enumerable: false, configurable: true });     // which commit this manifest came from
+    if (a.head) Object.defineProperty(m, '_head', { value: a.head(), enumerable: false, configurable: true });     // which store version this manifest came from
     return m;
   }
 
@@ -662,7 +773,7 @@
   async function loadActivityForRange(fromKey, toKey, manifestOpt) {
     const a0 = requireAdapter();
     const manifest = manifestOpt || await loadManifest();
-    const a = (manifest._head && a0.at) ? a0.at(manifest._head) : a0;      // read the same commit the manifest came from
+    const a = (manifest._head != null && a0.at) ? a0.at(manifest._head) : a0;      // read the same store version the manifest came from
     const firstMau = new Map(), firstLogin = new Map(), missingDays = [], storedDays = [];
     const days = dayRange(fromKey, toKey);
     const wanted = days.filter(k => manifest.days[k]);
@@ -762,18 +873,27 @@
     const P = window.Processing;
     const st = status || (() => {}), pr = progress || (() => {});
     const mode = p.mode === 'repeated' ? 'repeated' : 'normal';
-    const manifest = await loadManifest();
-    const summary = summarize(manifest);
-    const v = validateRange({ ...p, mode }, summary, todayKey());
-    if (v.errors.length) throw new StoreError('invalid', v.errors[0].msg);
-
-    st('Reading stored activity…'); pr(4);
-    const cur = await loadActivityForRange(p.from, p.to, manifest);
-    let prev = null, lbEnd = null;
-    if (mode === 'repeated') {
-      lbEnd = addDays(p.from, -1);
-      st('Reading look-back activity…'); pr(8);
-      prev = await loadActivityForRange(p.lookbackFrom, lbEnd, manifest);
+    // Read the manifest, then every day it lists, from ONE state of the store. If an admin publishes right in the middle
+    // the service says so ('changed') and we just start the reading again (at most twice).
+    let manifest, summary, cur, prev = null, lbEnd = null;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        manifest = await loadManifest();
+        summary = summarize(manifest);
+        const v = validateRange({ ...p, mode }, summary, todayKey());
+        if (v.errors.length) throw new StoreError('invalid', v.errors[0].msg);
+        st('Reading stored activity…'); pr(4);
+        cur = await loadActivityForRange(p.from, p.to, manifest);
+        if (mode === 'repeated') {
+          lbEnd = addDays(p.from, -1);
+          st('Reading look-back activity…'); pr(8);
+          prev = await loadActivityForRange(p.lookbackFrom, lbEnd, manifest);
+        }
+        break;
+      } catch (e) {
+        if (e && e.code === 'changed' && attempt < 2) { st('The store was just updated — reading it again…'); continue; }
+        throw e;
+      }
     }
     const createdList = [...cur.firstMau.keys()].sort();
     const otherList = [...cur.firstLogin.keys()].sort();
@@ -801,10 +921,11 @@
 
   /* ---------- public API ---------- */
   const Store = {
-    StoreError, ADMIN_HASHES,
+    StoreError,
     _now: () => Date.now(),                    // overridable clock (tests)
-    // where the store lives / publishing settings
-    init, configure, getSettings, saveSettings, clearToken, configFileText, ensureWritable, useAdapter, isConnected, storeName, status,
+    _testAdminHashes: [],                      // only for the automated tests' built-in login (see adminLogin)
+    // where the store lives / connection settings
+    init, configure, getSettings, saveSettings, clearSettings, configFileText, normalizeService, ensureWritable, diagnose, useAdapter, isConnected, storeName, status,
     // admin
     verifyAdminPassword, adminLogin, exitAdmin, isAdmin,
     // data

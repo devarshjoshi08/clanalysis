@@ -465,6 +465,7 @@
     manifest: null,
     addList: [],        // raw content-log files queued for "Add to store"
     busy: false,        // an add / report / reset is running
+    wasAdmin: false,    // was this page in admin mode a moment ago (to notice a session that ran out)
     seq: 0,             // refresh counter (ignore out-of-order answers)
     lastRead: 0,        // when the manifest was last read (ms)
     loadError: ''       // why the last read failed, if it did
@@ -473,8 +474,7 @@
 
   const storeSource = r$('storeSource'), storeLabel = r$('storeLabel');
   const storeCoverage = r$('storeCoverage'), storeLegend = r$('storeLegend'), storeRefresh = r$('storeRefresh');
-  const adminLoginBtn = r$('adminLoginBtn'), adminOn = r$('adminOn'), adminExitBtn = r$('adminExitBtn'), publishBtn = r$('publishBtn');
-  const addSetup = r$('addSetup'), addSetupBtn = r$('addSetupBtn');
+  const adminLoginBtn = r$('adminLoginBtn'), adminOn = r$('adminOn'), adminExitBtn = r$('adminExitBtn'), connectBtn = r$('connectBtn');
   const resetStoreBtn = r$('resetStoreBtn'), storeMsg = r$('storeMsg');
   const addCard = r$('addCard'), addFilesInput = r$('addFiles'), addClearBtn = r$('addClear'), addRunBtn = r$('addRun');
   const addFileList = r$('addFileList'), addProgress = r$('addProgress'), addStatus = r$('addStatus'), addResult = r$('addResult');
@@ -555,9 +555,17 @@
   /* ---------- store card ---------- */
   function setStoreMsg(text, type = '') { setStatus(storeMsg, text, type); }
 
-  /** Errors that mean "fix the Publishing settings" (token / repository / branch). */
-  const SETTINGS_CODES = ['no-token', 'bad-token', 'no-write', 'no-repo', 'no-branch', 'bad-repo'];
-  const needsSettings = e => !!e && (SETTINGS_CODES.includes(e.code) || (e.code === 'not-configured' && Store.isAdmin()));
+  /** Errors that mean "the store service itself isn't set up / isn't the right address" → open Check connection. */
+  const CONNECTION_CODES = ['not-configured', 'bad-service', 'not-a-service', 'no-database', 'not-set-up'];
+  const needsConnection = e => !!e && CONNECTION_CODES.includes(e.code);
+  /** The admin session ended (12 hours passed, or the passwords were changed): show the page as a visitor's and say so. */
+  function sessionEnded(e) {
+    if (!e || e.code !== 'session-expired') return false;
+    T4.wasAdmin = false; T4.addList = []; renderAddList(); renderAdmin(); storeSource.textContent = '';
+    setStoreMsg('Your admin session has ended. Log in again to continue.', 'error');
+    return true;
+  }
+  const hostOf = u => String(u || '').replace(/^https?:\/\//, '');
 
   function renderLabel() {
     storeLabel.className = 'store-label';
@@ -565,7 +573,7 @@
     if (!st.configured) {
       storeLabel.classList.add('warn');
       storeLabel.textContent = Store.isAdmin()
-        ? "The shared store isn't connected yet. Click “Publishing settings” to connect it."
+        ? "The shared store isn't connected yet. Click “Check connection” to enter the store service address."
         : "The shared store isn't set up yet. Please ask an admin to finish the one-time setup.";
       return;
     }
@@ -610,7 +618,7 @@
   async function refreshStore(quiet, force) {
     const st = Store.status();
     storeRefresh.disabled = !st.configured;
-    storeSource.textContent = Store.isAdmin() && st.repo ? `— ${st.repo}` : '';
+    storeSource.textContent = Store.isAdmin() && st.service ? `— ${hostOf(st.service)}` : '';
     const seq = ++T4.seq;
     if (!st.configured) { T4.summary = null; T4.manifest = null; T4.loadError = ''; }
     else {
@@ -646,16 +654,30 @@
     adminOn.classList.toggle('hidden', !admin);
     resetStoreBtn.classList.toggle('hidden', !(admin && st.configured));
     addCard.classList.toggle('hidden', !(admin && st.configured));
-    addSetup.classList.toggle('hidden', st.canPublish);
     addRunBtn.disabled = T4.busy || !T4.addList.length;
   }
+  // An admin session lasts 12 hours and can run out while the page sits open: notice it and say so.
+  setInterval(() => {
+    if (T4.wasAdmin && !Store.isAdmin() && !T4.busy) {
+      Store.exitAdmin();
+      T4.addList = []; renderAddList(); storeSource.textContent = '';
+      setStoreMsg('Your admin session has ended. Log in again to continue.', 'error');
+    }
+    T4.wasAdmin = Store.isAdmin();
+    renderAdmin();
+  }, 30000);
 
-  adminLoginBtn.addEventListener('click', async () => {
+  async function openLogin() {
+    if (!Store.status().configured) {                       // nothing to log in to yet → the address comes first
+      setStoreMsg('Enter the store service address first, then log in.', 'info');
+      await openConnection();
+      if (!Store.status().configured) return;
+    }
     const wrap = el('div');
-    wrap.appendChild(el('p', '', 'Enter the admin password to add daily logs, reset the store or change the publishing settings.'));
+    wrap.appendChild(el('p', '', 'Enter the admin password to add daily logs or reset the store.'));
     const input = el('input'); input.type = 'password'; input.autocomplete = 'off'; input.placeholder = 'Admin password';
     wrap.appendChild(input);
-    wrap.appendChild(el('p', 'muted', 'Admin mode lasts until you close this page.'));
+    wrap.appendChild(el('p', 'muted', 'Admin mode lasts 12 hours, or until you close this tab. The password is checked by the store service — it is never kept on this page.'));
     const ok = await openDialog({
       title: 'Admin login', body: wrap, okText: 'Log in',
       onOpen: ({ say, ok: okBtn, submit }) => {
@@ -675,98 +697,107 @@
         return () => { if (timer) clearInterval(timer); };
       },
       onOk: async say => {
+        say('Checking…', 'info');
         const res = await Store.adminLogin(input.value);
         if (res.ok) return true;
         input.value = '';
-        if (res.locked) { dlgState.lock(res.secondsLeft || 30); return false; }
-        say(res.message || 'Incorrect admin password.');
+        if (res.locked) { dlgState.lock(res.secondsLeft || 120); return false; }
+        const left = Number.isInteger(res.triesLeft) && res.triesLeft <= 2 ? ` ${res.triesLeft} ${res.triesLeft === 1 ? 'try' : 'tries'} left before a short lock.` : '';
+        say((res.message || 'Incorrect admin password.') + left);
         input.focus();
         return false;
       }
     });
     if (ok) {
+      T4.wasAdmin = true;
       renderAdmin(); refreshStore(true);
-      setStoreMsg('Admin mode is on until you close this page.', 'success');
-      // Publishing needs a token in this browser — if it isn't there yet, go straight to the settings.
-      if (!Store.status().canPublish) { setStoreMsg('Admin mode is on. Publishing isn’t set up in this browser yet — fill in the settings below.', 'success'); openPublishSettings(); }
+      setStoreMsg('Admin mode is on (12 hours, or until you close this tab).', 'success');
     }
-  });
+  }
+  adminLoginBtn.addEventListener('click', openLogin);
   adminExitBtn.addEventListener('click', () => {
     Store.exitAdmin();
-    T4.addList = []; renderAddList();
+    T4.wasAdmin = false; T4.addList = []; renderAddList();
     renderAdmin(); storeSource.textContent = '';
     setStoreMsg('Admin mode is off.');
     refreshStore(true);
   });
 
-  /* ---------- publishing settings (admin) ---------- */
-  const normRepo = s => String(s || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
-
-  async function openPublishSettings() {
-    if (!Store.isAdmin()) return null;
-    const cur = Store.getSettings();
+  /* ---------- connection (the store service's address) + "Check connection" ---------- */
+  async function openConnection() {
     const field = (label, input) => { const l = el('label', 'field stacked', label); l.appendChild(input); return l; };
-    const mk = (type, value, ph) => { const i = el('input'); i.type = type; i.value = value || ''; i.placeholder = ph || ''; i.autocomplete = 'off'; i.spellcheck = false; return i; };
-
     const wrap = el('div', 'settings-form');
-    wrap.appendChild(el('p', '', 'Admins publish each day’s data to a GitHub repository and everyone else reads it from there. These settings are saved only in this browser.'));
-    const repo = mk('text', cur.repo, 'owner/name  (e.g. myorg/clanalysis-data)');
-    const branch = mk('text', cur.branch || 'main', 'main');
-    const token = mk('password', '', cur.hasToken ? '•••••• saved — leave empty to keep it' : 'github_pat_…');
-    repo.id = 'setRepo'; branch.id = 'setBranch'; token.id = 'setToken';
-    wrap.appendChild(field('Data repository', repo));
-    wrap.appendChild(field('Branch', branch));
-    wrap.appendChild(field('GitHub token', token));
-    wrap.appendChild(el('p', 'muted', 'The token lets this browser change that one repository — keep it private and don’t save it on a shared computer.'));
+    wrap.appendChild(el('p', '', 'The shared store lives in a small free service on Cloudflare, and this page finds it through the address below. Only an admin has to enter it, once.'));
+    const input = el('input'); input.type = 'text'; input.id = 'setService'; input.value = Store.getSettings().service || '';
+    input.placeholder = 'https://your-name.workers.dev'; input.autocomplete = 'off'; input.spellcheck = false;
+    wrap.appendChild(field('Store service address', input));
 
-    const removeBtn = el('button', 'link-btn danger', 'Remove the saved token from this browser');
-    removeBtn.type = 'button'; removeBtn.id = 'setRemoveToken';
-    removeBtn.classList.toggle('hidden', !cur.hasToken);
-    wrap.appendChild(removeBtn);
+    const diag = el('ul', 'diag-list'); diag.id = 'setDiag';
+    wrap.appendChild(diag);
+    const showDiag = d => {
+      diag.textContent = '';
+      for (const s of d.steps) {
+        const li = el('li', s.ok ? 'ok' : 'bad');
+        li.appendChild(el('span', 'mark', s.ok ? '✓' : '✗'));
+        li.appendChild(el('span', '', ' ' + s.label));
+        if (s.detail) li.appendChild(el('div', 'diag-detail', s.detail));
+        diag.appendChild(li);
+      }
+    };
 
+    const useFile = el('button', 'link-btn', 'Use the address from the website instead (forget this browser’s own copy)');
+    useFile.type = 'button'; useFile.id = 'setUseFile';
+    wrap.appendChild(useFile);
     const cfgBox = el('div', 'cfg-box');
     const cfgNote = el('p', '', ''); cfgNote.id = 'setCfgNote';
     const cfgPre = el('pre', 'cfg-text'); cfgPre.id = 'setCfgText';
     cfgBox.appendChild(cfgNote); cfgBox.appendChild(cfgPre);
     wrap.appendChild(cfgBox);
+    const typedService = () => { try { return Store.normalizeService(input.value); } catch (_) { return ''; } };
     const drawCfg = () => {
-      const r = normRepo(repo.value), b = branch.value.trim() || 'main';
-      cfgPre.textContent = JSON.stringify({ repo: r || 'owner/name', branch: b }, null, 2);
-      const same = Store.getSettings().fileRepo && Store.getSettings().fileRepo === r;
+      const gs = Store.getSettings(), typed = typedService();
+      const same = !!typed && gs.fileService === typed;
+      cfgPre.textContent = JSON.stringify({ service: typed || 'https://your-name.workers.dev' }, null, 2);
       cfgNote.textContent = same
-        ? '✓ Everyone’s page already uses this repository (the website’s store-config.json matches).'
+        ? '✓ Everyone’s page already uses this address, so visitors can read the store without any setup.'
         : 'For everyone else to see the store, the website must contain a file named store-config.json (next to index.html) with exactly this:';
-      cfgBox.classList.toggle('ok', !!same);
+      cfgBox.classList.toggle('ok', same);
+      useFile.classList.toggle('hidden', !(gs.cfgSource === 'local' && gs.fileService));
     };
-    repo.addEventListener('input', drawCfg); branch.addEventListener('input', drawCfg); drawCfg();
-
-    removeBtn.addEventListener('click', () => {
-      Store.clearToken(); token.placeholder = 'github_pat_…'; removeBtn.classList.add('hidden');
-      if (dlgState) dlgState.say('Token removed from this browser.', 'info');
+    input.addEventListener('input', drawCfg); drawCfg();
+    useFile.addEventListener('click', () => {
+      Store.clearSettings();
+      input.value = Store.getSettings().service || ''; drawCfg(); diag.textContent = '';
+      if (dlgState) dlgState.say('Now using the address from the website.', 'info');
     });
 
     const res = await openDialog({
-      title: 'Publishing settings', body: wrap, okText: 'Save and test', cancelText: 'Close',
-      onOpen: ({ submit }) => {
-        setTimeout(() => (repo.value ? token : repo).focus(), 30);
-        for (const i of [repo, branch, token]) i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      title: 'Check connection', body: wrap, okText: 'Save and check', cancelText: 'Close',
+      onOpen: ({ say, submit }) => {
+        setTimeout(() => input.focus(), 30);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+        if (Store.getSettings().service || Store.isConnected()) {       // already set up → check right away
+          say('Checking the connection…', 'info');
+          Store.diagnose().then(d => { if (dlgState) { showDiag(d); say(d.ok ? 'Everything is working.' : 'Something needs attention — see the list above.', d.ok ? 'success' : 'error'); } });
+        }
       },
       onOk: async say => {
-        const saved = Store.saveSettings({ repo: repo.value, branch: branch.value, token: token.value });
-        token.value = '';
-        if (!saved.canPublish) return { saved: true, tested: false, remembered: saved.saved };
-        say('Testing the connection…', 'info');
-        await Store.ensureWritable();                       // throws a friendly message → stays open
-        return { saved: true, tested: true, remembered: saved.saved };
+        const saved = Store.saveSettings({ service: input.value });       // a malformed address shows its message here
+        input.value = saved.service;                                       // show it cleaned up (no /v1/ping, no trailing slash)
+        say('Checking the connection…', 'info');
+        const d = await Store.diagnose();
+        showDiag(d); drawCfg();
+        if (!d.ok) { say('Something needs attention — see the list above.', 'error'); return false; }
+        if (!(Store.getSettings().fileService === saved.service)) { say('Connected ✓. So that everyone else can use it too, put the text from the box above into the website’s store-config.json (see HOW_TO_PUSH.md), then press Close.', 'success'); return false; }
+        return { ok: true };
       }
     });
     await refreshStore(true);
-    if (res && res.tested) setStoreMsg('Publishing is connected — this browser can now add days to the store.' + (res.remembered ? '' : ' (This browser won’t remember the token after you close the page.)'), 'success');
-    else if (res && res.saved) setStoreMsg('Repository saved. Add a GitHub token to be able to publish.', 'success');
+    renderAdmin();
+    if (res && res.ok) setStoreMsg('Connected to the shared store.', 'success');
     return res;
   }
-  publishBtn.addEventListener('click', () => openPublishSettings());
-  addSetupBtn.addEventListener('click', () => openPublishSettings());
+  connectBtn.addEventListener('click', () => openConnection());
 
   /* ---------- add daily logs (admin) ---------- */
   function renderAddList() {
@@ -815,7 +846,7 @@
       addResult.appendChild(el('div', 'result-note warn',
         `Already added earlier: ${res.duplicateFiles.join(', ')} — re-adding never double-counts, so nothing changed for those rows.`));
     }
-    addResult.appendChild(el('div', 'result-note', 'Published to the shared store. Everyone can use the new days within a few minutes (Refresh shows them right away).'));
+    addResult.appendChild(el('div', 'result-note', 'Published to the shared store — everyone can use the new days straight away.'));
   }
 
   addRunBtn.addEventListener('click', async () => {
@@ -825,7 +856,7 @@
     addClearBtn.disabled = true; addResult.textContent = '';
     setProgress(addProgress, 0);
     try {
-      await Store.ensureWritable();        // confirms the token before any heavy reading
+      await Store.ensureWritable();        // confirms the admin session before any heavy reading
       const parsed = await Store.parseLogFiles(T4.addList, ({ fileIndex, fileCount, name, pct }) => {
         setProgress(addProgress, ((fileIndex + pct / 100) / fileCount) * 90);
         setStatus(addStatus, `Reading ${name} (${fileIndex + 1} of ${fileCount}) — ${Math.round(pct)}%`);
@@ -847,7 +878,7 @@
       console.error(e);
       setStatus(addStatus, `Error: ${e.message}`, 'error');
       setProgress(addProgress, 0);
-      if (needsSettings(e)) setTimeout(openPublishSettings, 0);     // token / repository problem → open the settings
+      if (!sessionEnded(e) && needsConnection(e)) setTimeout(openConnection, 0);     // the service isn't set up / wrong address → open Check connection
     } finally {
       T4.busy = false; addClearBtn.disabled = false; renderAdmin();
     }
@@ -857,7 +888,7 @@
   resetStoreBtn.addEventListener('click', async () => {
     if (!Store.isAdmin() || T4.busy) return;
     try { await Store.ensureWritable(); }
-    catch (e) { setStoreMsg(e.message, 'error'); if (needsSettings(e)) openPublishSettings(); return; }
+    catch (e) { if (!sessionEnded(e)) { setStoreMsg(e.message, 'error'); if (needsConnection(e)) openConnection(); } return; }
     let manifest;
     try { manifest = await Store.loadManifest(); } catch (e) { setStoreMsg(e.message, 'error'); return; }
     const s = Store.summarize(manifest);
@@ -865,7 +896,7 @@
     const month = s.firstDay.slice(0, 7);
 
     const wrap = el('div');
-    wrap.appendChild(el('p', '', `This archives all ${plural(s.dayCount, 'stored day')} (${Store.fmtDMY(s.firstDay)} to ${Store.fmtDMY(s.lastDay)}) into the folder archive/${month} of the data repository and empties the store. Nothing is deleted — the archived data stays in the repository.`));
+    wrap.appendChild(el('p', '', `This archives all ${plural(s.dayCount, 'stored day')} (${Store.fmtDMY(s.firstDay)} to ${Store.fmtDMY(s.lastDay)}) into the archive/${month} folder inside the store and empties it for everyone. Nothing is deleted — the archived data stays in the store service.`));
     wrap.appendChild(el('p', '', 'Type RESET to confirm:'));
     const input = el('input'); input.type = 'text'; input.autocomplete = 'off'; input.placeholder = 'RESET';
     wrap.appendChild(input);
@@ -882,7 +913,8 @@
       onOk: async say => {
         if (input.value.trim() !== 'RESET') { say('Type RESET (capitals) to confirm.'); return false; }
         say('Archiving and publishing…', 'info');
-        return await Store.resetStore();
+        try { return await Store.resetStore(); }
+        catch (e) { if (sessionEnded(e)) return { expired: true }; throw e; }
       }
     });
     T4.busy = false;
@@ -892,7 +924,7 @@
       setStoreMsg(`Store reset. ${plural(done.dayCount, 'day')} archived to ${done.archivedTo}.`, 'success');
       showModal('Store reset',
         `Archived ${plural(done.dayCount, 'day')} (${Store.fmtDMY(done.firstDay)} to ${Store.fmtDMY(done.lastDay)}) to:\n  ${done.archivedTo}\n\n` +
-        'The store is now empty for everyone — add the new month\'s files to start again. The archive stays in the data repository.');
+        'The store is now empty for everyone — add the new month\'s files to start again. The archive stays in the store service.');
     }
     renderAdmin();
   });
@@ -1045,6 +1077,7 @@
     renderAdmin(); renderValidation(); renderLabel();
     try { await Store.init(); }
     catch (e) { console.error(e); }
+    T4.wasAdmin = Store.isAdmin();          // an admin session from earlier in this tab carries over a reload
     await refreshStore(true);
   })();
 

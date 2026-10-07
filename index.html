@@ -164,10 +164,10 @@
       </div>
       <div class="actions card-actions">
         <button id="storeRefresh" class="btn btn-secondary" disabled>Refresh</button>
+        <button id="connectBtn" class="link-btn" type="button" title="See whether this page can reach the shared store">Check connection</button>
         <span class="admin-bar">
           <button id="adminLoginBtn" class="link-btn">Admin login</button>
           <span id="adminOn" class="admin-on hidden">Admin mode on
-            <button id="publishBtn" class="link-btn">Publishing settings</button>
             <button id="adminExitBtn" class="link-btn">Exit admin</button></span>
           <button id="resetStoreBtn" class="link-btn danger hidden">Reset store (admin)</button>
         </span>
@@ -179,7 +179,6 @@
     <div class="card hidden" id="addCard">
       <div class="card-title">Add daily logs <span class="card-sub">admin</span></div>
       <p class="muted card-note">Select one or many raw Content-Log CSVs (any mix of days). Each row is filed under its own IST date; adding the same file twice never double-counts. Adding publishes to the shared store, so everyone sees it.</p>
-      <div id="addSetup" class="msg warn hidden">Publishing isn&rsquo;t set up in this browser yet. <button id="addSetupBtn" class="link-btn" type="button">Open Publishing settings</button></div>
       <div class="actions">
         <label class="btn btn-primary">
           Select Content-Log Files

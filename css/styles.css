@@ -415,7 +415,7 @@ input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus
 .dlg-msg.error { color: var(--danger); }
 .dlg-msg.info { color: var(--text-muted); }
 
-/* Publishing settings dialog */
+/* Check connection dialog */
 .field.stacked { display: flex; flex-direction: column; align-items: stretch; gap: 0; margin: 0 0 10px 0; font-size: 12px; }
 .field.stacked input { font-weight: 400; }
 .cfg-box { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 4px; }
@@ -424,8 +424,17 @@ input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus
 .cfg-box.ok p { color: var(--success); margin: 0; }
 .cfg-box.ok .cfg-text { display: none; }
 .cfg-text { margin: 0; padding: 8px 10px; background: var(--surface-3); border-radius: 4px; font-size: 12px; user-select: all; white-space: pre-wrap; }
-#addSetup { margin-bottom: 12px; }
 .admin-on .link-btn { margin-left: 10px; }
+.card-actions .link-btn { align-self: center; }
+.dlg-msg.success { color: var(--success); }
+/* "Check connection" results */
+.diag-list { list-style: none; margin: 4px 0 12px 0; padding: 0; font-size: 12px; }
+.diag-list li { margin: 4px 0; }
+.diag-list li.ok .mark { color: var(--success); font-weight: 700; }
+.diag-list li.bad .mark { color: var(--danger); font-weight: 700; }
+.diag-list li.bad { color: #FCA5A5; }
+.diag-detail { margin: 2px 0 0 18px; color: var(--text-muted); }
+.diag-list li.bad .diag-detail { color: #FCA5A5; }
 
 @media (max-width: 640px) {
   .admin-bar { margin-left: 0; width: 100%; }
