@@ -45,10 +45,18 @@ async function readTabularFile(file, preferredSheet) {
   }
   if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.xlsm')) {
     const buf = await readFileAsArrayBuffer(file);
-    const wb = XLSX.read(buf, { type: 'array' });
+    // .xlsx/.xlsm: parse only the sheet that is used, without formulas/HTML (the
+    // values are the same). The reporting template is ~250k rows with ~500k
+    // formulas, and parsing every sheet in full needed far more memory.
+    const zipBook = !name.endsWith('.xls');
+    const lean = { type: 'array', cellFormula: false, cellHTML: false };
+    let wb = zipBook
+      ? XLSX.read(buf, { ...lean, sheets: preferredSheet ? [preferredSheet] : 0 })
+      : XLSX.read(buf, { type: 'array' });
     const sheetName = (preferredSheet && wb.SheetNames.includes(preferredSheet))
       ? preferredSheet
       : wb.SheetNames[0];
+    if (!wb.Sheets[sheetName]) wb = XLSX.read(buf, { ...lean, sheets: [sheetName] });
     const ws = wb.Sheets[sheetName];
     return XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
   }
@@ -567,18 +575,37 @@ function computeSummaries(rows, withRepeated = false) {
  */
 async function readLastWeekMAU(file) {
   const buf = await readFileAsArrayBuffer(file);
-  const wb = XLSX.read(buf, { type: 'array' });
+  // Parse only the sheet that is needed, and read just its two columns straight
+  // from the cells: last week's Raw_Data has a row per student (~250k), and
+  // parsing every sheet + turning every row into an object roughly doubled the
+  // memory this step needs. Same result as sheet_to_json(defval:'', raw:false).
+  const lean = { type: 'array', cellFormula: false, cellHTML: false, cellStyles: false };
   const set = new Set();
-  if (wb.SheetNames.includes('Raw_Data')) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets['Raw_Data'], { defval: '', raw: false });
-    for (const r of rows) {
-      if (String(r['Completed MAU?'] ?? '').trim().toLowerCase() === 'yes') {
-        const em = String(r['Adobe Email'] ?? '').trim().toLowerCase();
-        if (em) set.add(em);
+  let wb = XLSX.read(buf, { ...lean, sheets: ['Raw_Data'] });
+  const raw = wb.SheetNames.includes('Raw_Data') ? wb.Sheets['Raw_Data'] : null;
+  if (raw && raw['!ref']) {
+    const range = XLSX.utils.decode_range(raw['!ref']);
+    const text = (R, C) => {
+      const cell = raw[XLSX.utils.encode_cell({ r: R, c: C })];
+      return (!cell || cell.t === 'e' || cell.t === 'z' || cell.v == null) ? '' : String(XLSX.utils.format_cell(cell));
+    };
+    let mauC = -1, emailC = -1;
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const h = text(range.s.r, C);
+      if (h === 'Completed MAU?' && mauC < 0) mauC = C;
+      if (h === 'Adobe Email' && emailC < 0) emailC = C;
+    }
+    if (mauC >= 0 && emailC >= 0) {
+      for (let R = range.s.r + 1; R <= range.e.r; R++) {
+        if (text(R, mauC).trim().toLowerCase() === 'yes') {
+          const em = text(R, emailC).trim().toLowerCase();
+          if (em) set.add(em);
+        }
       }
     }
   }
   if (set.size === 0 && wb.SheetNames.includes('Mapping')) {
+    wb = XLSX.read(buf, { ...lean, sheets: ['Mapping'] });
     const aoa = XLSX.utils.sheet_to_json(wb.Sheets['Mapping'], { header: 1, defval: '' });
     for (const row of aoa) {
       const em = String(row[0] ?? '').trim().toLowerCase();
@@ -808,16 +835,12 @@ async function buildAdobeWorkbook(rawRows, summaries, mauDist) {
     cell.font = rawHeaderFont;
     cell.alignment = XL_CENTER;
   });
-  // Bulk add via array-of-arrays is fastest
-  const rawData = rawRows.map(r => rawHeaders.map(h => {
-    const v = r[h];
-    return (v === undefined || v === null || v === '') ? null : v;
-  }));
-  wsRaw.addRows(rawData);
+  // Rows are written straight into the file when it is saved (memory-light; see writeWorkbookBuffer)
+  queueSheetRows(wb, wsRaw, rawHeaders, rawRows);
 
   addSummarySheets(wb, summaries, mauDist);
 
-  const buf = await wb.xlsx.writeBuffer();
+  const buf = await writeWorkbookBuffer(wb);
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
@@ -834,15 +857,165 @@ function paListCols(label) {
     : PA_LIST_COLS;
 }
 
-/** A plain data sheet: red header row + rows for the given columns. */
+/* ---------- Big data sheets without ExcelJS cell objects ----------
+ * Raw_Data has one row per student (~250,000 rows). Holding those as ExcelJS
+ * cell objects took ~0.9 GB of browser memory, and saving the workbook roughly
+ * doubled that — enough to run a laptop with 8 GB of RAM out of memory as the
+ * roster grows. So data sheets get their styled header from ExcelJS as usual,
+ * but their rows are QUEUED (queueSheetRows) and written straight into the file
+ * as sheet XML while ExcelJS saves the workbook (writeWorkbookBuffer): the same
+ * cells ExcelJS itself would write — shared strings, numbers, booleans, real
+ * dates with the column's number format — at a fraction of the memory.
+ * If that ever fails (e.g. a future ExcelJS changed its internals), the rows
+ * are added the original way and the workbook is saved again. */
+
+const XL_VT = { Null: 0, Number: 2, String: 3, Date: 4, Boolean: 9 };   // ExcelJS ValueType numbers
+
+/** Excel column letters for a 1-based column number (1 → A, 27 → AA). */
+function xlColumnLetter(n) {
+  let s = '';
+  for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+/** Queue row objects as the data rows of `ws` (one column per entry of `cols`). */
+function queueSheetRows(wb, ws, cols, rows) {
+  if (!rows || !rows.length || !cols || !cols.length) return;
+  (wb._queuedRows || (wb._queuedRows = [])).push({ ws, cols, rows });
+}
+
+/** Fallback: put the queued rows into the ExcelJS model (the original, memory-heavy way). */
+function addQueuedRowsToModel(wb) {
+  const queued = wb._queuedRows || [];
+  wb._queuedRows = [];
+  for (const { ws, cols, rows } of queued) {
+    ws.addRows(rows.map(r => cols.map(c => { const v = r[c]; return (v === undefined || v === null || v === '') ? null : v; })));
+  }
+}
+
+/** wb.xlsx.writeBuffer(), with any queued rows written directly into their sheets. */
+async function writeWorkbookBuffer(wb) {
+  const queued = wb._queuedRows || [];
+  const xlsx = wb.xlsx;
+  if (queued.length && typeof xlsx.addWorksheets === 'function') {
+    const own = Object.prototype.hasOwnProperty.call(xlsx, 'addWorksheets');
+    const original = xlsx.addWorksheets;
+    xlsx.addWorksheets = function (zip, model) { return addWorksheetsWithQueuedRows(this, original, zip, model, queued); };
+    try {
+      const buf = await xlsx.writeBuffer();
+      wb._queuedRows = [];
+      return buf;
+    } catch (e) {
+      console.warn('Direct sheet writing failed; using the standard ExcelJS writer instead.', e);
+    } finally {
+      if (own) xlsx.addWorksheets = original; else delete xlsx.addWorksheets;
+    }
+  }
+  addQueuedRowsToModel(wb);
+  return xlsx.writeBuffer();
+}
+
+/** Runs ExcelJS's own addWorksheets, then swaps in the full XML of each sheet that has queued rows. */
+async function addWorksheetsWithQueuedRows(self, original, zip, model, queued) {
+  if (!model || !model.sharedStrings || typeof model.sharedStrings.add !== 'function' ||
+      !model.styles || typeof model.styles.addStyleModel !== 'function' || typeof zip.append !== 'function') {
+    throw new Error('Unexpected ExcelJS internals');
+  }
+  const byPath = new Map(queued.map(q => [`xl/worksheets/sheet${q.ws.id}.xml`, q]));
+  const held = new Map();
+  const ownAppend = Object.prototype.hasOwnProperty.call(zip, 'append');
+  const append = zip.append;
+  zip.append = function (data, options) {
+    if (options && byPath.has(options.name) && typeof data === 'string') { held.set(options.name, data); return undefined; }
+    return append.apply(this, arguments);
+  };
+  try {
+    await original.call(self, zip, model);
+  } finally {
+    if (ownAppend) zip.append = append; else delete zip.append;
+  }
+  for (const [path, q] of byPath) {
+    const xml = held.get(path);
+    if (xml === undefined) throw new Error('Sheet XML not found: ' + path);
+    zip.append(sheetXmlWithRows(xml, q, model), { name: path });
+  }
+}
+
+/** The sheet's XML (header from ExcelJS) with the queued rows added, as UTF-8 bytes. */
+function sheetXmlWithRows(xml, q, model) {
+  const { ws, cols, rows } = q;
+  const end = xml.lastIndexOf('</sheetData>');
+  if (end < 0) throw new Error('No sheetData in ' + ws.name);
+  const n = cols.length;
+  const letters = cols.map((_, i) => xlColumnLetter(i + 1));
+  const date1904 = !!(model.properties && model.properties.date1904);
+  // Each cell's style = its column's style, exactly as ExcelJS gives a new cell
+  // (only the date column has one: its dd-mm-yyyy number format).
+  const colStyles = cols.map((_, i) => {
+    const s = ws.getColumn(i + 1).style || {}, out = {};
+    for (const k of ['numFmt', 'font', 'alignment', 'border', 'fill', 'protection']) if (s[k]) out[k] = s[k];
+    return out;
+  });
+  const styleIds = new Map();
+  const styleId = (i, type) => {
+    const key = i * 16 + type;
+    let id = styleIds.get(key);
+    if (id === undefined) { id = model.styles.addStyleModel(Object.assign({}, colStyles[i]), type) || 0; styleIds.set(key, id); }
+    return id;
+  };
+  const sst = model.sharedStrings;
+  const enc = new TextEncoder();
+  const chunks = [];
+  let buf = '';
+  const firstRow = ws.rowCount + 1;            // after the header row(s), as ws.addRows() would
+  for (let k = 0; k < rows.length; k++) {
+    const r = rows[k], rn = firstRow + k;
+    buf += `<row r="${rn}" spans="1:${n}" x14ac:dyDescent="0.25">`;
+    for (let i = 0; i < n; i++) {
+      let v = r[cols[i]];
+      let type;
+      if (v === undefined || v === null || v === '') type = XL_VT.Null;
+      else if (typeof v === 'string') type = XL_VT.String;
+      else if (typeof v === 'number') type = Number.isFinite(v) ? XL_VT.Number : XL_VT.Null;
+      else if (typeof v === 'boolean') type = XL_VT.Boolean;
+      else if (v instanceof Date) type = isNaN(v.getTime()) ? XL_VT.Null : XL_VT.Date;
+      else { v = String(v); type = XL_VT.String; }
+      const s = styleId(i, type);
+      if (type === XL_VT.Null) {
+        if (s) buf += `<c r="${letters[i]}${rn}" s="${s}"/>`;
+        continue;
+      }
+      buf += `<c r="${letters[i]}${rn}"` + (s ? ` s="${s}"` : '');
+      if (type === XL_VT.String) buf += ` t="s"><v>${sst.add(v)}</v></c>`;
+      else if (type === XL_VT.Number) buf += `><v>${v}</v></c>`;
+      else if (type === XL_VT.Boolean) buf += ` t="b"><v>${v ? 1 : 0}</v></c>`;
+      else buf += `><v>${25569 + v.getTime() / (24 * 3600 * 1000) - (date1904 ? 1462 : 0)}</v></c>`;
+    }
+    buf += '</row>';
+    if (buf.length > 1 << 20) { chunks.push(enc.encode(buf)); buf = ''; }
+  }
+  if (buf) chunks.push(enc.encode(buf));
+  const lastRow = firstRow + rows.length - 1;
+  const head = enc.encode(xml.slice(0, end).replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:${letters[n - 1]}${lastRow}"/>`));
+  const tail = enc.encode(xml.slice(end));
+  let size = head.length + tail.length;
+  for (const c of chunks) size += c.length;
+  const out = new Uint8Array(size);
+  let at = 0;
+  out.set(head, at); at += head.length;
+  for (let i = 0; i < chunks.length; i++) { out.set(chunks[i], at); at += chunks[i].length; chunks[i] = null; }
+  out.set(tail, at);
+  return out;
+}
+
+/** A plain data sheet: red header row + rows for the given columns (rows are queued; see writeWorkbookBuffer). */
 function addRowSheet(wb, sheetName, cols, rows) {
   const ws = wb.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = cols.map(h => ({ header: h, key: h, width: Math.min(Math.max(h.length + 2, 12), 30) }));
   cols.forEach((c, i) => { if (PA_DATE_COLS.has(c)) ws.getColumn(i + 1).numFmt = 'dd-mm-yyyy'; });
   const hr = ws.getRow(1);
   hr.eachCell(cell => { cell.fill = XL_TITLE_FILL; cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }; cell.alignment = XL_CENTER; });
-  const data = (rows || []).map(r => cols.map(c => { const v = r[c]; return (v === undefined || v === null || v === '') ? null : v; }));
-  if (data.length) ws.addRows(data);
+  queueSheetRows(wb, ws, cols, rows);
 }
 function addRawDataSheet(wb, rows) { addRowSheet(wb, 'Raw_Data', PA_RAW_COLS, rows); }
 
@@ -885,7 +1058,7 @@ async function buildProcessedAdobeWorkbook(summaries, mauDist, createdList, othe
   }
   if (studentRows && studentRows.length) addRowSheet(wb, 'Raw_Data', on ? listCols : PA_RAW_COLS, studentRows);
   addMappingSheet(wb, createdList, otherList);
-  const buf = await wb.xlsx.writeBuffer();
+  const buf = await writeWorkbookBuffer(wb);
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
