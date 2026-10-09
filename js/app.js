@@ -5,15 +5,140 @@
 
 (() => {
 
-  /* ---------- Tab switching ---------- */
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    });
+  /* ---------- Sections ----------
+   * The Date-Range MAU Report is the main page and opens by default. The other
+   * tools (Email Extractor, Adobe Data Preparation, Process + Adobe) sit in the
+   * "More tools" menu; the menu button shows which of them is open. */
+  const rangeTabBtn = document.querySelector('.tab-btn[data-tab="range"]');
+  const toolsBtn = document.getElementById('toolsMenuBtn');
+  const toolsMenu = document.getElementById('toolsMenu');
+  const toolsLabel = document.getElementById('toolsMenuLabel');
+  const toolItems = Array.from(toolsMenu.querySelectorAll('.tools-item'));
+
+  function showTab(name) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
+    const item = toolItems.find(i => i.dataset.tab === name) || null;
+    rangeTabBtn.classList.toggle('active', !item);
+    toolsBtn.classList.toggle('active', !!item);
+    if (item) rangeTabBtn.removeAttribute('aria-current'); else rangeTabBtn.setAttribute('aria-current', 'page');
+    toolItems.forEach(i => { i.classList.toggle('current', i === item); if (i === item) i.setAttribute('aria-current', 'page'); else i.removeAttribute('aria-current'); });
+    toolsLabel.textContent = item ? item.textContent : 'More tools';
+  }
+  const menuOpen = () => !toolsMenu.classList.contains('hidden');
+  function setMenu(open, focusFirst) {
+    toolsMenu.classList.toggle('hidden', !open);
+    toolsBtn.setAttribute('aria-expanded', String(open));
+    if (open && focusFirst) (toolItems.find(i => i.classList.contains('current')) || toolItems[0]).focus();
+  }
+  rangeTabBtn.addEventListener('click', () => { setMenu(false); showTab('range'); });
+  toolsBtn.addEventListener('click', e => { setMenu(!menuOpen(), e.detail === 0); });   // e.detail 0 = opened from the keyboard
+  toolsBtn.addEventListener('keydown', e => { if (e.key === 'ArrowDown') { e.preventDefault(); setMenu(true, true); } });
+  toolItems.forEach(item => item.addEventListener('click', () => { setMenu(false); showTab(item.dataset.tab); toolsBtn.focus(); }));
+  toolsMenu.addEventListener('keydown', e => {
+    const i = toolItems.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      toolItems[(i + (e.key === 'ArrowDown' ? 1 : toolItems.length - 1)) % toolItems.length].focus();
+    } else if (e.key === 'Tab') setMenu(false);
   });
+  document.addEventListener('click', e => { if (menuOpen() && !e.target.closest('.tools-menu')) setMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && menuOpen()) { setMenu(false); toolsBtn.focus(); } });
+
+  /* ---------- Version stamp ----------
+   * Shows, on every page, which copy of the site this is:
+   *  - "Updated on GitHub <date time IST>": when GitHub Pages last published the
+   *    site's files (newest Last-Modified of the page, scripts, styles and the
+   *    template, read fresh from the server - nothing to update by hand);
+   *  - the code version below (bump APP_VERSION when the code changes);
+   *  - a note when GitHub has a newer copy than the one on screen ("reload"), or
+   *    when a change was just pushed and GitHub Pages is still publishing it. */
+  const APP_VERSION = '2026.10.09';
+  const SiteVersion = (() => {
+    const main = document.getElementById('siteVersionMain');
+    const sub = document.getElementById('siteVersionSub');
+    const note = document.getElementById('siteVersionNote');
+    const CODE = ['js/app.js', 'js/processing.js', 'js/store.js', 'css/styles.css'];
+    const TEMPLATE = 'Adobe_Reporting_Template.xlsm';
+    const p2 = n => String(n).padStart(2, '0');
+    const fmtIst = t => { const d = new Date(t + 330 * 60000); return `${p2(d.getUTCDate())}-${p2(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} IST`; };
+    const web = location.protocol === 'http:' || location.protocol === 'https:';
+    const pageUrl = () => location.href.split('#')[0];
+    let lastCheck = 0, timer = null, polls = 0;
+    sub.textContent = `Version ${APP_VERSION}`;
+
+    /** Last-Modified of a file: `fresh` = what GitHub serves right now; otherwise the copy this browser holds (the one in use). */
+    async function lastModified(url, fresh) {
+      try {
+        const r = await fetch(url, fresh ? { method: 'HEAD', cache: 'no-store' } : { cache: 'force-cache' });
+        const t = r.ok ? Date.parse(r.headers.get('Last-Modified') || '') : NaN;
+        return isNaN(t) ? null : t;
+      } catch (_) { return null; }
+    }
+    /** Newest commit on GitHub (only when the site is served from <owner>.github.io/<repo>/). */
+    async function latestCommit() {
+      const host = location.hostname.toLowerCase();
+      if (!host.endsWith('.github.io')) return null;
+      const owner = host.slice(0, -'.github.io'.length);
+      const repo = location.pathname.split('/').filter(Boolean)[0] || host;
+      try {
+        const r = await fetch(`https://api.github.com/repos/${owner}/${encodeURIComponent(repo)}/commits?per_page=1`, { cache: 'no-store' });
+        if (!r.ok) return null;
+        const c = (await r.json())[0];
+        const t = c && Date.parse(c.commit.committer.date);
+        return t ? { at: t, message: String(c.commit.message || '').split('\n')[0] } : null;
+      } catch (_) { return null; }
+    }
+    /** Load the newest copies into the browser cache first, so the reload really shows the latest version. */
+    async function reloadLatest() {
+      await Promise.all([pageUrl(), ...CODE].map(u => fetch(u, { cache: 'reload' }).catch(() => null)));
+      location.reload();
+    }
+    function setNote(kind, text, withReload) {
+      note.className = `sv-note ${kind}`;
+      note.textContent = text;
+      if (withReload) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'sv-reload'; b.textContent = 'Reload';
+        b.addEventListener('click', () => { b.disabled = true; b.textContent = 'Reloading…'; reloadLatest(); });
+        note.append(' ', b);
+      }
+    }
+    async function check() {
+      lastCheck = Date.now();
+      if (!web) return;
+      const loadedPage = Date.parse(document.lastModified);       // Last-Modified of the page on screen
+      const [freshPage, freshCode, freshTpl, usedCode, commit] = await Promise.all([
+        lastModified(pageUrl(), true), Promise.all(CODE.map(u => lastModified(u, true))), lastModified(TEMPLATE, true),
+        Promise.all(CODE.map(u => lastModified(u, false))), latestCommit()
+      ]);
+      const times = [freshPage, ...freshCode, freshTpl].filter(t => t !== null);
+      const published = times.length ? Math.max(...times) : null;
+      if (published) {
+        main.textContent = `Updated on GitHub: ${fmtIst(published)}`;
+        main.title = 'When GitHub last published this site (page, scripts, styles or template).';
+      } else if (commit) {
+        main.textContent = `Last change on GitHub: ${fmtIst(commit.at)}`;
+      }
+      if (commit) sub.title = `Latest change on GitHub: "${commit.message}" (${fmtIst(commit.at)})`;
+      // Is the copy on screen older than GitHub's? (page, or a script/style the browser kept from before)
+      const newer = (fresh, used) => fresh !== null && used !== null && !isNaN(used) && fresh - used > 60000;
+      const stale = newer(freshPage, loadedPage) || freshCode.some((t, i) => newer(t, usedCode[i]));
+      clearTimeout(timer);
+      if (stale) {
+        setNote('sv-new', 'A newer version is on GitHub.', true);
+      } else if (commit && published && commit.at - published > 60000) {
+        setNote('sv-wait', 'GitHub is publishing the latest change (about 1–2 minutes)…', false);
+        if (polls++ < 10) timer = setTimeout(check, 60000);       // look again until it is live
+      } else {
+        note.className = 'sv-note hidden'; note.textContent = '';
+      }
+    }
+    // Check on open, and again when the window regains focus (at most every 5 minutes).
+    window.addEventListener('focus', () => { if (Date.now() - lastCheck > 300000) check(); });
+    check();
+    return { check, version: APP_VERSION };
+  })();
+  window.SiteVersion = SiteVersion;
 
   /* ---------- Modal ---------- */
   const modal = document.getElementById('modal');
