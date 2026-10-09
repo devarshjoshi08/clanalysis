@@ -9,21 +9,39 @@
 <body>
 
 <header class="app-header">
-  <h1>Content Logs Analyzer</h1>
-  <p class="subtitle">Browser version &mdash; your files are processed locally in your browser</p>
+  <div class="header-row">
+    <div>
+      <h1>Content Logs Analyzer</h1>
+      <p class="subtitle">Browser version &mdash; your files are processed locally in your browser</p>
+    </div>
+    <!-- Which copy of the site is this? Filled in by app.js (see "Version stamp"). -->
+    <div id="siteVersion" class="site-version" aria-live="polite">
+      <div id="siteVersionMain" class="sv-main"></div>
+      <div id="siteVersionSub" class="sv-sub"></div>
+      <div id="siteVersionNote" class="sv-note hidden"></div>
+    </div>
+  </div>
 </header>
 
-<nav class="tabs">
-  <button class="tab-btn active" data-tab="emails">Email Extractor</button>
-  <button class="tab-btn" data-tab="adobe">Adobe Data Preparation</button>
-  <button class="tab-btn" data-tab="paAdobe">Process + Adobe Data Preparation</button>
-  <button class="tab-btn" data-tab="range">Date-Range MAU Report</button>
+<!-- The Date-Range MAU Report is the main page; the other tools sit in the "More tools" menu. -->
+<nav class="tabs" aria-label="Sections">
+  <button class="tab-btn active" data-tab="range" aria-current="page">Date-Range MAU Report</button>
+  <div class="tools-menu">
+    <button id="toolsMenuBtn" class="tab-btn tools-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="toolsMenu">
+      <span id="toolsMenuLabel">More tools</span><svg class="caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div id="toolsMenu" class="tools-list hidden" role="menu" aria-label="More tools">
+      <button class="tools-item" type="button" role="menuitem" data-tab="emails">Email Extractor</button>
+      <button class="tools-item" type="button" role="menuitem" data-tab="adobe">Adobe Data Preparation</button>
+      <button class="tools-item" type="button" role="menuitem" data-tab="paAdobe">Process + Adobe Data Preparation</button>
+    </div>
+  </div>
 </nav>
 
 <main class="content">
 
   <!-- ============ TAB 1: EMAIL EXTRACTOR ============ -->
-  <section id="tab-emails" class="tab-pane active">
+  <section id="tab-emails" class="tab-pane">
     <div class="features">
       <strong>Features:</strong>
       <ul>
@@ -140,7 +158,7 @@
 
 
   <!-- ============ TAB 4: DATE-RANGE MAU REPORT ============ -->
-  <section id="tab-range" class="tab-pane">
+  <section id="tab-range" class="tab-pane active">
     <div class="features">
       <strong>Date-Range MAU Report</strong>
       <p>Pick a date range and get the final Adobe summary for just that period &mdash; built from a shared <strong>daily store</strong> that an admin tops up with each day's content logs. <strong>No login and no Zoho access needed</strong> to download a report.</p>
