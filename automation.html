@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adobe daily sync – Status</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--quiet:#5d6676;--line:#dde1e7;--accent:#2f6fde;--good:#1f8a4c;--warn:#b26a00;--bad:#c23b32}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2128;--ink:#e8ebf0;--quiet:#9aa3b2;--line:#2e343e;--accent:#6c9cff;--good:#4cc27e;--warn:#e0a03a;--bad:#ef6b62}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 60px}h1{font-size:22px;margin:4px 0 4px}h2{font-size:17px;margin:0 0 10px}
+a{color:var(--accent)}.back{font-size:14px}
+.sub{color:var(--quiet);margin:0 0 18px}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:0 0 14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}.row label{flex:1 1 160px;font-size:13px;color:var(--quiet)}
+input[type=text],input[type=password],input[type=date],textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{resize:vertical;min-height:96px}
+button{padding:8px 14px;border-radius:7px;border:1px solid var(--accent);background:var(--accent);color:#fff;font:inherit;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent)}button:disabled{opacity:.5;cursor:default}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:13px;font-weight:600;border:1px solid currentColor}
+.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.quiet{color:var(--quiet)}
+dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:8px 0 0}dt{color:var(--quiet)}dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:6px}.bar>i{display:block;height:100%;background:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+.msg{margin-top:10px;font-size:14px}.hidden{display:none}.chips button{padding:4px 10px;font-size:13px}
+.note{font-size:13px;color:var(--quiet);margin:8px 0 0}
+</style></head><body><main>
+<p class="back"><a href="./">← Content Logs Analyzer</a></p>
+<h1>Adobe daily sync – Status</h1>
+<p class="sub">Is the daily Adobe download running? Admins can also change the alert emails and the reporting cycle.</p>
+
+<section class="card"><h2>Data status</h2><div id="statusBox" class="quiet">Loading…</div></section>
+<section class="card"><h2>Current cycle</h2><div id="cycleBox" class="quiet">Loading…</div></section>
+
+<section class="card" id="loginCard"><h2>Admin login</h2>
+<p class="note" style="margin:0 0 8px">Use the same admin password as on the Content Logs Analyzer website. Admins can change the alert emails and the cycle.</p>
+<div class="row"><label>Admin password<input type="password" id="pw" autocomplete="current-password"></label><button id="loginBtn">Log in</button></div>
+<div class="msg" id="loginMsg"></div></section>
+
+<div id="adminArea" class="hidden">
+<section class="card"><h2>Alert emails</h2>
+<p class="note" style="margin:0 0 8px">Everyone in this list gets an email when the server needs a person (for example when Adobe asks for a fresh sign-in, or when the server stops checking in), and one more when it works again. One address per line, at most 10.</p>
+<textarea id="aList" rows="4" spellcheck="false" placeholder="name@ei.study"></textarea>
+<div class="row" style="margin-top:10px"><button id="aSave">Save email list</button><button class="ghost" id="aTest">Send a test email</button></div>
+<div class="msg" id="aMsg"></div>
+<h3 style="font-size:15px;margin:18px 0 4px">Email sender</h3>
+<div id="relayBox" class="quiet">Loading…</div>
+<p class="note">The emails are sent from an admin's Google account by a small Google Apps Script (no mail server needed). To connect it, or to move it to another Google account: click the button below, then run <b>setup</b> in the script within 15 minutes.</p>
+<button class="ghost" id="rConnect">Connect the email sender</button><div class="msg" id="rMsg"></div></section>
+
+<section class="card"><h2>Start a new cycle</h2>
+<p class="note">The data stored now is moved into the archive (nothing is deleted), the store starts empty, and the server downloads every day from the start date up to yesterday, about one week of data every 30 minutes. To redo the current cycle from day 1, start a cycle with the same dates.</p>
+<div class="row"><label>Name<input type="text" id="nName" maxlength="60" placeholder="November 2026"></label>
+<label>Start date<input type="date" id="nStart"></label><label>End date<input type="date" id="nEnd"></label></div>
+<div class="row chips" style="margin-top:8px"><span class="quiet" style="font-size:13px">Length:</span><button class="ghost" data-weeks="4">4 weeks</button><button class="ghost" data-weeks="5">5 weeks</button><span class="quiet" id="nLen" style="font-size:13px"></span></div>
+<p><label><input type="checkbox" id="nOk"> I understand the current data moves to the archive</label></p>
+<button id="startBtn">Start new cycle</button><div class="msg" id="startMsg"></div></section>
+
+<section class="card"><h2>Change the current cycle's dates</h2>
+<p class="note">Use this to fix a typo or move the end date. Stored data stays as it is.</p>
+<div class="row"><label>Name<input type="text" id="eName" maxlength="60"></label>
+<label>Start date<input type="date" id="eStart"></label><label>End date<input type="date" id="eEnd"></label></div>
+<p></p><button id="editBtn">Save dates</button><div class="msg" id="editMsg"></div></section>
+
+<section class="card"><h2>Archives</h2><div id="archBox" class="quiet">Loading…</div>
+<p class="note">Older archives are copied to the Linux server and then removed from the store, so it stays small. The most recent archive stays in the store.</p></section>
+<p><button class="ghost" id="logoutBtn">Log out</button></p>
+</div>
+</main>
+<script>
+(function(){
+var TK='cla_admin_page_token', token='', BASE='', PAGE_LINK=false;
+try{token=sessionStorage.getItem(TK)||'';}catch(e){}
+var DAY=86400000, IST=19800000, STATUS=null, MANIFEST=null;
+function $(id){return document.getElementById(id);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function dmy(k){if(!k)return '–';var p=String(k).split('-');return p[2]+'-'+p[1]+'-'+p[0];}
+function addDays(k,n){var d=new Date(k+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+function nDays(a,b){return Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/DAY)+1;}
+function istNow(){return new Date(Date.now()+IST);}
+function istStamp(iso){var t=Date.parse(iso);if(isNaN(t))return '–';var d=new Date(t+IST),p=function(n){return (n<10?'0':'')+n;};return p(d.getUTCDate())+'-'+p(d.getUTCMonth()+1)+'-'+d.getUTCFullYear()+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes());}
+function ago(iso){var t=Date.parse(iso);if(isNaN(t))return '';var m=Math.round((Date.now()-t)/60000);if(m<1)return 'just now';if(m<60)return m+' min ago';var h=Math.round(m/60);if(h<48)return h+' h ago';return Math.round(h/24)+' days ago';}
+function mb(b){return (b/1048576).toFixed(b<10485760?1:0)+' MB';}
+function lastComplete(){var n=istNow(),today=n.toISOString().slice(0,10);return n.getUTCHours()>=6?addDays(today,-1):addDays(today,-2);}
+function call(path,opts){opts=opts||{};opts.headers=opts.headers||{};if(token)opts.headers.Authorization='Bearer '+token;opts.cache='no-store';
+ return fetch(BASE+path,opts).then(function(r){return r.text().then(function(t){var b;try{b=JSON.parse(t);}catch(e){b={ok:false,message:'The service answered HTTP '+r.status};}
+ if(r.status===401&&token&&b.code==='session-expired'){setToken('');}b.http=r.status;return b;});},function(){return {ok:false,message:'Could not reach the store service. Check the internet connection.'};});}
+function setToken(t){token=t||'';try{if(token)sessionStorage.setItem(TK,token);else sessionStorage.removeItem(TK);}catch(e){}showAdmin();}
+function showAdmin(){$('adminArea').classList.toggle('hidden',!token);$('loginCard').classList.toggle('hidden',!!token);if(token){loadArchives();loadAlerts();}}
+function say(id,cls,text){var el=$(id);el.className='msg '+(cls||'');el.textContent=text||'';}
+
+function emailLine(s){
+ var r=s.relay, em=s.status&&s.status.email, n=s.alertRecipients||0;
+ if(r&&r.connected){
+  var t=n?n+' address(es) in the list':'<span class="warn">The list is empty (emails go to the sender\'s own address)</span>';
+  t+=' · sent from Google';
+  if(r.lastSentAt)t+=' · last email '+istStamp(r.lastSentAt);
+  var age=r.lastPollAt?(Date.now()-Date.parse(r.lastPollAt))/60000:1e9;
+  if(age>40)t+='<br><span class="warn">The email sender has not checked in '+(r.lastPollAt?'since '+esc(ago(r.lastPollAt)):'yet')+'. An admin can check it below.</span>';
+  if(r.failing)t+='<br><span class="bad">The last email could not be sent. An admin can see why below.</span>';
+  return t;
+ }
+ if(em&&em.configured){var u=em.recipients?em.recipients+' address(es) in the list':'<span class="warn">The list is empty</span>';if(em.lastSentAt)u+=' · last sent '+istStamp(em.lastSentAt);if(em.lastError)u+='<br><span class="bad">Last email failed: '+esc(em.lastError)+'</span>';return u;}
+ return '<span class="warn">Not switched on yet (an admin connects the email sender below)</span>';
+}
+function renderStatus(s){
+ var st=s.status, box=$('statusBox'), html='';
+ var pill='<span class="pill quiet">No report from the server yet</span>', lines=[];
+ if(st){
+  var age=(Date.now()-Date.parse(st.lastRunAt||st.receivedAt))/60000;
+  if(st.result==='error'){pill='<span class="pill bad">Needs attention</span>';}
+  else if(age>120){pill='<span class="pill warn">Server has not checked in</span>';}
+  else if(st.result==='waiting'){pill='<span class="pill warn">Waiting for Adobe</span>';}
+  else {pill='<span class="pill good">Working</span>';}
+  if(st.error&&st.result==='error'){lines.push('<p class="bad" style="margin:10px 0 0"><b>'+esc(st.error.title||'Problem')+'.</b> '+esc(st.error.message||'')+'</p>');
+   if(st.error.action)lines.push('<p style="margin:4px 0 0"><b>What to do:</b> '+esc(st.error.action)+'</p>');}
+  if(age>120&&st.result!=='error')lines.push('<p class="warn" style="margin:10px 0 0">The server last checked in '+esc(ago(st.lastRunAt||st.receivedAt))+'. It normally checks every 30 minutes. Ask PSE whether the Linux server is switched on.</p>');
+  if(st.message)lines.push('<p class="quiet" style="margin:6px 0 0">'+esc(st.message)+'</p>');
+ }
+ var used=s.storage.databaseBytes||s.storage.contentBytes, pct=Math.min(100,Math.round(used*100/s.storage.limitBytes));
+ html=pill+lines.join('')+'<dl>'+
+  '<dt>Data stored up to</dt><dd>'+(s.store.lastDay?dmy(s.store.lastDay):'– (empty)')+'</dd>'+
+  '<dt>Days in the store</dt><dd>'+s.store.days+(s.store.firstDay?' ('+dmy(s.store.firstDay)+' to '+dmy(s.store.lastDay)+')':'')+'</dd>'+
+  '<dt>Last added</dt><dd>'+(st&&st.lastSuccessAt?istStamp(st.lastSuccessAt)+' ('+esc(ago(st.lastSuccessAt))+')':'–')+'</dd>'+
+  '<dt>Last check by server</dt><dd>'+(st?istStamp(st.lastRunAt||st.receivedAt)+' ('+esc(ago(st.lastRunAt||st.receivedAt))+')':'–')+'</dd>'+
+  '<dt>Alert emails</dt><dd>'+emailLine(s)+'</dd>'+
+  '<dt>Database used</dt><dd>'+mb(used)+' of 500 MB ('+pct+'%)<div class="bar"><i style="width:'+Math.max(1,pct)+'%"></i></div></dd></dl>';
+ box.className='';box.innerHTML=html;
+}
+function renderCycle(s){
+ var c=s.cycle, box=$('cycleBox');
+ if(!c){box.className='';box.innerHTML='<span class="pill warn">No cycle set</span><p>The server does not download anything until an admin starts a cycle below.</p>';return;}
+ var to=lastComplete(); if(c.end<to)to=c.end;
+ var total=c.start<=to?nDays(c.start,to):0, have=0, missing=[];
+ var days=(MANIFEST&&MANIFEST.days)||{};
+ for(var k=c.start;k<=to&&total>0;k=addDays(k,1)){if(days[k])have++;else missing.push(k);}
+ var miss=missing.length?(missing.length>12?missing.slice(0,12).map(dmy).join(', ')+' … (+'+(missing.length-12)+' more)':missing.map(dmy).join(', ')):'none';
+ var ended=lastComplete()>c.end;
+ if(!total){box.className='';box.innerHTML='<b>'+esc(c.name)+'</b> · '+dmy(c.start)+' to '+dmy(c.end)+' ('+c.days+' days)'+
+  '<p class="quiet" style="margin:8px 0 0">Starts on '+dmy(c.start)+'. The server downloads each day from the next morning (after 6:00 India time).</p>';
+  if(!$('eName').value){$('eName').value=c.name;$('eStart').value=c.start;$('eEnd').value=c.end;}return;}
+ box.className='';box.innerHTML='<b>'+esc(c.name)+'</b> · '+dmy(c.start)+' to '+dmy(c.end)+' ('+c.days+' days)'+
+  '<dl><dt>Complete days so far</dt><dd>'+total+'</dd><dt>Stored</dt><dd>'+have+' of '+total+'</dd><dt>Still to download</dt><dd>'+esc(miss)+'</dd></dl>'+
+  (ended?'<p class="warn" style="margin:10px 0 0">This cycle has ended. Start the next cycle below so the server keeps downloading.</p>':'');
+ if(!$('eName').value){$('eName').value=c.name;$('eStart').value=c.start;$('eEnd').value=c.end;}
+ if(!$('nStart').value){$('nStart').value=addDays(c.end,1);$('nEnd').value=addDays(c.end,35);updLen();}
+}
+function load(){
+ Promise.all([call('/v1/status'),fetch(BASE+'/v1/file/manifest.json',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;})]).then(function(a){
+  var s=a[0];MANIFEST=a[1];STATUS=s;
+  if(!s.ok){$('statusBox').innerHTML='<span class="bad">'+esc(s.message||'Could not load the status.')+'</span>';$('cycleBox').textContent='';return;}
+  renderStatus(s);renderCycle(s);
+ });
+}
+function loadArchives(){
+ call('/v1/archives').then(function(r){var box=$('archBox');
+  if(!r.ok){box.innerHTML='<span class="bad">'+esc(r.message)+'</span>';return;}
+  if(!r.archives.length){box.className='quiet';box.textContent='No archives yet.';return;}
+  var saved=(STATUS&&STATUS.status&&STATUS.status.backups)||[];
+  box.className='';box.innerHTML='<table><tr><th>Archive</th><th>Days</th><th>Size</th><th>Copy on server</th></tr>'+r.archives.map(function(x){
+   return '<tr><td>'+esc(x.folder)+'</td><td>'+Math.max(0,x.files-1)+'</td><td>'+mb(x.bytes)+'</td><td>'+(saved.indexOf(x.folder)>=0?'<span class="good">Saved</span>':'<span class="quiet">Not yet</span>')+'</td></tr>';}).join('')+'</table>';
+ });
+}
+function loadAlerts(){
+ call('/v1/alerts').then(function(r){
+  if(!r.ok){say('aMsg','bad',r.http===404?'The store does not support alert emails yet.':(r.message||'Could not load the list.'));return;}
+  $('aList').value=(r.emails||[]).join('\n');
+  say('aMsg','quiet',r.updatedAt?'Last changed '+istStamp(r.updatedAt)+' (India time).':'No addresses saved yet.');
+  renderRelay(r.relay);
+ });
+}
+function renderRelay(r){
+ var box=$('relayBox');
+ if(!r){box.className='quiet';box.textContent='This store does not have the email sender yet.';return;}
+ var h;
+ if(r.connected){
+  var age=r.lastPollAt?(Date.now()-Date.parse(r.lastPollAt))/60000:1e9;
+  h='<span class="pill '+(age>40||r.lastError?'warn':'good')+'">'+(age>40?'Connected, not checking in':'Connected')+'</span>'+
+   '<dl><dt>Sends from</dt><dd>'+esc(r.sender||'(the Google account that ran setup)')+'</dd>'+
+   '<dt>Connected on</dt><dd>'+istStamp(r.pairedAt)+'</dd>'+
+   '<dt>Last check</dt><dd>'+(r.lastPollAt?istStamp(r.lastPollAt)+' ('+esc(ago(r.lastPollAt))+')':'not yet')+'</dd>'+
+   '<dt>Last email sent</dt><dd>'+(r.lastSentAt?istStamp(r.lastSentAt):'none yet')+'</dd></dl>'+
+   (r.lastError?'<p class="bad" style="margin:8px 0 0">Last sending error: '+esc(r.lastError)+'</p>':'')+
+   (age>40?'<p class="warn" style="margin:8px 0 0">It normally checks every 10 minutes. Open the script at script.google.com and look at its Executions and Triggers.</p>':'');
+ } else h='<span class="pill warn">Not connected</span><p style="margin:6px 0 0">No alert emails are sent until an email sender is connected.</p>';
+ if(r.waitingUntil)h+='<p class="good" style="margin:8px 0 0">Waiting for setup until '+istStamp(r.waitingUntil).slice(11)+' (India time): run <b>setup</b> in the script now.</p>';
+ box.className='';box.innerHTML=h;
+}
+function updLen(){var a=$('nStart').value,b=$('nEnd').value;$('nLen').textContent=(a&&b&&b>=a)?nDays(a,b)+' days':'';}
+$('nStart').addEventListener('change',updLen);$('nEnd').addEventListener('change',updLen);
+Array.prototype.forEach.call(document.querySelectorAll('[data-weeks]'),function(b){b.addEventListener('click',function(){var s=$('nStart').value;if(!s)return;$('nEnd').value=addDays(s,7*(+b.getAttribute('data-weeks'))-1);updLen();});});
+$('loginBtn').addEventListener('click',function(){var pw=$('pw').value;if(!pw){say('loginMsg','bad','Enter the admin password.');return;}
+ $('loginBtn').disabled=true;say('loginMsg','quiet','Checking…');
+ call('/v1/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})}).then(function(r){$('loginBtn').disabled=false;
+  if(r.ok&&r.token){$('pw').value='';say('loginMsg','','');setToken(r.token);}else say('loginMsg','bad',r.message||'Login failed.');});});
+$('pw').addEventListener('keydown',function(e){if(e.key==='Enter')$('loginBtn').click();});
+$('logoutBtn').addEventListener('click',function(){setToken('');});
+$('aSave').addEventListener('click',function(){
+ var list=$('aList').value.split(/[\s,;]+/).map(function(s){return s.trim();}).filter(Boolean);
+ var body={emails:list}; if(PAGE_LINK&&location.protocol==='https:')body.pageUrl=location.origin+location.pathname;
+ $('aSave').disabled=true;say('aMsg','quiet','Saving…');
+ call('/v1/alerts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){$('aSave').disabled=false;
+  if(r.ok){$('aList').value=r.emails.join('\n');say('aMsg','good','Saved: '+r.emails.length+' address(es). The server uses the new list for its next email.');}
+  else say('aMsg','bad',r.message||'That did not work.');});
+});
+$('aTest').addEventListener('click',function(){
+ $('aTest').disabled=true;say('aMsg','quiet','Asking for a test email…');
+ call('/v1/alerts/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){$('aTest').disabled=false;
+  if(!r.ok){say('aMsg','bad',r.message||'That did not work.');return;}
+  renderRelay(r.relay);
+  say('aMsg',r.relay&&r.relay.connected?'good':'warn',r.relay&&r.relay.connected?'Test email queued for '+(r.recipients||'the sender\'s own')+' address(es). It arrives within 10 minutes.':'Test email queued, but no email sender is connected yet. Connect it below; the email goes out right after.');});
+});
+$('rConnect').addEventListener('click',function(){
+ $('rConnect').disabled=true;say('rMsg','quiet','Opening…');
+ call('/v1/relay/open',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){$('rConnect').disabled=false;
+  if(!r.ok){say('rMsg','bad',r.message||'That did not work.');return;}
+  say('rMsg','good','The store now waits 15 minutes. In the Google Apps Script, choose the function "setup" and click Run.');loadAlerts();});
+});
+function cycleCall(action,name,start,end,btn,msg,done){
+ btn.disabled=true;say(msg,'quiet','Saving…');
+ call('/v1/cycle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:action,name:name,start:start,end:end})}).then(function(r){btn.disabled=false;
+  if(r.ok){say(msg,'good',done(r));load();loadArchives();}else say(msg,'bad',r.message||'That did not work.');});
+}
+$('startBtn').addEventListener('click',function(){
+ if(!$('nOk').checked){say('startMsg','bad','Tick the box first.');return;}
+ var n=$('nName').value.trim(),a=$('nStart').value,b=$('nEnd').value;
+ if(!n||!a||!b){say('startMsg','bad','Fill in the name, start date and end date.');return;}
+ cycleCall('start',n,a,b,$('startBtn'),'startMsg',function(r){$('nOk').checked=false;$('eName').value='';return 'Started "'+r.cycle.name+'". '+(r.archivedTo?r.archivedDays+' days moved to '+r.archivedTo+'. ':'')+'The server starts downloading within 30 minutes.';});
+});
+$('editBtn').addEventListener('click',function(){
+ var n=$('eName').value.trim(),a=$('eStart').value,b=$('eEnd').value;
+ if(!n||!a||!b){say('editMsg','bad','Fill in the name, start date and end date.');return;}
+ cycleCall('edit',n,a,b,$('editBtn'),'editMsg',function(r){return 'Saved: '+r.cycle.name+', '+dmy(r.cycle.start)+' to '+dmy(r.cycle.end)+'.';});
+});
+function start(){showAdmin();load();setInterval(load,60000);}
+fetch('store-config.json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(c){
+ BASE=String((c&&c.service)||'').replace(/\/+$/,'');
+ if(!/^(https:\/\/[^\/]+|http:\/\/127\.0\.0\.1:\d+)$/.test(BASE))throw new Error('no service');
+ PAGE_LINK=true;start();
+}).catch(function(){$('statusBox').innerHTML='<span class="bad">Could not read the store address from store-config.json next to this page.</span>';$('cycleBox').textContent='';});
+})();
+</script></body></html>
