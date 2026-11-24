@@ -919,6 +919,223 @@
     return res;
   }
 
+  /* ---------- monthly report (Monthly tab): weeks from the cycle start, rolling look-back per week ---------- */
+  const MONTHLY_LOOKBACK_DEFAULT = 28;
+
+  /** The reporting cycle the admin set on the service (/v1/cycle, public) → {name, start, end} or null. */
+  async function getCycle() {
+    if (_override) return _override.cycle || null;
+    if (!_cfg.service) return null;
+    try {
+      const res = await svc('/v1/cycle');
+      if (!res.ok) return null;
+      const b = await bodyJson(res);
+      const c = b && b.ok ? b.cycle : null;
+      return c && isDayKey(c.start) && isDayKey(c.end) ? { name: String(c.name || ''), start: c.start, end: c.end } : null;
+    } catch (_) { return null; }
+  }
+
+  /**
+   * Admin only: which days the archives (earlier cycles) hold → { days: Map(day → path), folders }.
+   * When two archives hold the same day, the most recently updated one wins.
+   */
+  async function loadArchiveIndex() {
+    requireAdmin();
+    const days = new Map(), folders = [];
+    const addPath = path => { const m = /^archive\/[^/]+\/daily\/(\d{4}-\d{2}-\d{2})\.csv$/.exec(path); if (m && !days.has(m[1])) days.set(m[1], path); };
+    if (_override) {
+      if (typeof _override.list !== 'function') return { days, folders };
+      for (const f of (await _override.list(ARCHIVE_DIR)).sort().reverse()) {
+        folders.push(f);
+        for (const n of await _override.list(`${ARCHIVE_DIR}/${f}/${DAILY_DIR}`)) addPath(`${ARCHIVE_DIR}/${f}/${DAILY_DIR}/${n}`);
+      }
+      return { days, folders };
+    }
+    const res = await svc('/v1/archives', { headers: authHeader() });
+    const body = await bodyJson(res);
+    if (res.status === 404 && !(body && body.code)) throw new StoreError('no-archives', 'This store service cannot list archives yet (it needs the v3 update of the Cloudflare worker).');
+    if (!res.ok || !body || !body.ok) throw serviceError(res, body, 'list the archives');
+    const list = (body.archives || []).filter(a => a && a.folder)
+      .sort((x, y) => (Number(y.updated) || 0) - (Number(x.updated) || 0) || String(y.folder).localeCompare(String(x.folder)));
+    for (const a of list) {
+      const r2 = await svc('/v1/archives?folder=' + encodeURIComponent(a.folder), { headers: authHeader() });
+      const b2 = await bodyJson(r2);
+      if (!r2.ok || !b2 || !b2.ok) throw serviceError(r2, b2, 'list the archive ' + a.folder);
+      folders.push(a.folder);
+      for (const x of b2.files || []) addPath(String(x.path || ''));
+    }
+    return { days, folders };
+  }
+  async function readArchiveText(path) {
+    if (_override) return _override.readText(path);
+    return (await fetchFile(path, true)).text;
+  }
+
+  /** The weeks of a cycle: week i = start + 7·i … +6; its look-back = the `lookbackDays` days before it. */
+  function monthlyWeeks(p) {
+    const lb = Number(p.lookbackDays) || MONTHLY_LOOKBACK_DEFAULT;
+    const out = [];
+    for (let i = 0; i < (Number(p.weeks) || 0); i++) {
+      const from = addDays(p.start, 7 * i);
+      out.push({ n: i + 1, from, to: addDays(from, 6), lbFrom: addDays(from, -lb), lbTo: addDays(from, -1) });
+    }
+    return out;
+  }
+  function monthlyFilename(p) {
+    const w = monthlyWeeks(p);
+    return `Adobe_Monthly_MAU_${fmtDMY(p.start)}_to_${fmtDMY(w.length ? w[w.length - 1].to : p.start)}.xlsx`;
+  }
+  const weekList = ns => {                                     // [1,2,3] → "Weeks 1–3", [1,3] → "Weeks 1, 3"
+    if (ns.length === 1) return `Week ${ns[0]}`;
+    const run = ns.every((n, i) => !i || n === ns[i - 1] + 1);
+    return `Weeks ${run ? `${ns[0]}–${ns[ns.length - 1]}` : ns.join(', ')}`;
+  };
+
+  /**
+   * Pure checks for the monthly form.
+   * @param p    {start, weeks, lookbackDays}
+   * @param ctx  {manifest, summary, archive: Map(day→path)|null, admin: bool, archiveError: string, today}
+   * @returns {{errors, warnings, weeks:[…+ included, dataTo, missing[], lbMissing[], lbLocked[]], lastDataDay}}
+   */
+  function validateMonthly(p, ctx) {
+    const errors = [], warnings = [];
+    const E = (code, msg) => errors.push({ code, msg });
+    const W = (code, msg) => warnings.push({ code, msg });
+    const today = ctx.today, summary = ctx.summary, days = (ctx.manifest && ctx.manifest.days) || {};
+    const archive = ctx.archive || null;
+    const weeksN = Number(p.weeks), lbN = Number(p.lookbackDays);
+    if (!isDayKey(p.start)) E('start-empty', 'Pick the cycle start date.');
+    else if (p.start > today) E('future', "The cycle start can't be after today.");
+    if (!Number.isInteger(weeksN) || weeksN < 1 || weeksN > 6) E('weeks', 'Number of weeks must be 1 to 6.');
+    if (!Number.isInteger(lbN) || lbN < 1 || lbN > 62) E('lookback', 'Look-back must be 1 to 62 days.');
+    if (!summary || summary.empty) E('store-empty', 'The store is empty — an admin needs to add files first.');
+    if (errors.length) return { errors, warnings, weeks: [], lastDataDay: null };
+
+    const has = k => !!days[k] || !!(archive && archive.has(k));
+    let lastDataDay = summary.lastDay;
+    if (archive) for (const k of archive.keys()) if (k > lastDataDay) lastDataDay = k;
+    if (lastDataDay > today) lastDataDay = today;
+
+    const weeks = monthlyWeeks({ start: p.start, weeks: weeksN, lookbackDays: lbN }).map(w => {
+      const included = w.from <= lastDataDay;
+      const dataTo = w.to < lastDataDay ? w.to : lastDataDay;
+      const missing = included ? dayRange(w.from, dataTo).filter(k => !has(k)) : [];
+      const lbAll = dayRange(w.lbFrom, w.lbTo);
+      // look-back days outside the current store that an admin could read from the archive (only when not logged in)
+      const lbLocked = !archive ? lbAll.filter(k => !days[k] && k < summary.firstDay) : [];
+      const lbMissing = lbAll.filter(k => !has(k) && !lbLocked.includes(k));
+      return { ...w, included, dataTo, missing, lbMissing, lbLocked };
+    });
+    const inc = weeks.filter(w => w.included);
+    if (!inc.length) { E('no-data', `No stored data yet for this cycle (data runs up to ${fmtDMY(lastDataDay)}).`); return { errors, warnings, weeks, lastDataDay }; }
+
+    const later = weeks.filter(w => !w.included);
+    if (later.length) W('weeks-later', `${weekList(later.map(w => w.n))} (from ${fmtDMY(later[0].from)}) ${later.length === 1 ? 'has' : 'have'} no data yet and will be left out.`);
+    const partial = inc.filter(w => w.dataTo < w.to);
+    for (const w of partial) W('week-partial', `Week ${w.n} (${fmtShort(w.from)}–${fmtShort(w.to)}) is not complete: data only up to ${fmtDMY(w.dataTo)}.`);
+    for (const w of inc) if (w.missing.length) W('missing-week', `Week ${w.n}: no data for ${compressDays(w.missing)}.`);
+
+    const locked = inc.filter(w => w.lbLocked.length);
+    if (locked.length) {
+      const all = [...new Set(locked.flatMap(w => w.lbLocked))].sort();
+      W('lookback-archive', `The look-back for ${weekList(locked.map(w => w.n))} needs ${compressDays(all)}, which is before the current store (${fmtDMY(summary.firstDay)}) — those days sit in the previous cycle's archive, which only an admin can read. ` +
+        (ctx.archiveError ? `The archive could not be read: ${ctx.archiveError} ` : (ctx.admin ? '' : 'Log in as admin to include them. ')) +
+        'Without them, students who were MAU only on those days count as New instead of Repeated.');
+    }
+    const lbMiss = [...new Set(inc.flatMap(w => w.lbMissing))].sort();
+    if (lbMiss.length) W('missing-lookback', `Look-back has no data for ${compressDays(lbMiss)} — students MAU only on those days count as New instead of Repeated.`);
+    return { errors, warnings, weeks, lastDataDay };
+  }
+
+  async function runMonthlyReport(p, status, progress, templateArrayBuffer) {
+    const P = window.Processing;
+    const st = status || (() => {}), pr = progress || (() => {});
+    const params = { start: p.start, weeks: Number(p.weeks), lookbackDays: Number(p.lookbackDays) || MONTHLY_LOOKBACK_DEFAULT };
+    let archive = null, archiveError = '';
+    if (isAdmin()) {
+      st('Listing archived days (earlier cycles)…'); pr(1);
+      try { archive = (await loadArchiveIndex()).days; }
+      catch (e) { if (e && e.code === 'session-expired') throw e; archiveError = (e && e.message) || String(e); }
+    }
+    let manifest, v, texts;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        manifest = await loadManifest();
+        v = validateMonthly(params, { manifest, summary: summarize(manifest), archive, admin: isAdmin(), archiveError, today: todayKey() });
+        if (v.errors.length) throw new StoreError('invalid', v.errors[0].msg);
+        const need = new Set();
+        for (const w of v.weeks.filter(x => x.included)) {
+          for (const k of dayRange(w.from, w.dataTo)) need.add(k);
+          for (const k of dayRange(w.lbFrom, w.lbTo)) need.add(k);
+        }
+        const jobs = [...need].sort().map(k => manifest.days[k] ? { k, path: `${DAILY_DIR}/${k}.csv`, arch: false }
+          : (archive && archive.has(k) ? { k, path: archive.get(k), arch: true } : null)).filter(Boolean);
+        const a0 = requireAdapter();
+        const a = (manifest._head != null && a0.at) ? a0.at(manifest._head) : a0;
+        st(`Reading ${jobs.length} stored days (${jobs.filter(j => j.arch).length} from the archive)…`); pr(4);
+        texts = new Map();
+        let next = 0, done = 0;
+        const worker = async () => {
+          while (next < jobs.length) {
+            const j = jobs[next++];
+            try { texts.set(j.k, j.arch ? await readArchiveText(j.path) : await a.readText(j.path)); }
+            catch (e) {
+              if (e instanceof StoreError) throw e;
+              throw new StoreError('read-failed', `Could not read ${j.k}.csv (${e.message || e.name}).`);
+            }
+            pr(4 + Math.round(10 * (++done) / jobs.length));
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
+        break;
+      } catch (e) {
+        if (e && e.code === 'changed' && attempt < 2) { st('The store was just updated — reading it again…'); continue; }
+        throw e;
+      }
+    }
+    // Each day once: MAU (email → earliest ts) and login emails.
+    const perDay = new Map();
+    for (const [k, txt] of texts) {
+      if (txt == null) continue;
+      const mau = new Map(), login = new Set();
+      for (const [email, x] of parseDay(txt)) { if (x.mau != null) mau.set(email, x.mau); if (x.login != null) login.add(email); }
+      perDay.set(k, { mau, login });
+    }
+    const inc = v.weeks.filter(w => w.included);
+    const weeks = inc.map(w => {
+      const mau = new Map(), login = new Set(), lbMau = new Set();
+      let withData = 0;
+      for (const k of dayRange(w.from, w.to)) {
+        const d = perDay.get(k); if (!d) continue;
+        withData++;
+        for (const [e, ts] of d.mau) { const q = mau.get(e); if (q === undefined || ts < q) mau.set(e, ts); }
+        for (const e of d.login) login.add(e);
+      }
+      for (const k of dayRange(w.lbFrom, w.lbTo)) { const d = perDay.get(k); if (d) for (const e of d.mau.keys()) lbMau.add(e); }
+      const lbGone = [...w.lbMissing, ...w.lbLocked].sort();
+      const missAll = [...w.missing, ...dayRange(addDays(w.dataTo, 1), w.to).filter(k => k > w.dataTo)];
+      return {
+        n: w.n, from: w.from, to: w.to, lbFrom: w.lbFrom, lbTo: w.lbTo,
+        periodText: `${fmtDMY(w.from)} to ${fmtDMY(w.to)}`, lookbackText: `${fmtDMY(w.lbFrom)} to ${fmtDMY(w.lbTo)}`,
+        daysWithData: withData, daysPlanned: 7,
+        missingText: missAll.length ? compressDays(missAll) : '', lbMissingText: lbGone.length ? compressDays(lbGone) : '',
+        mau, login, lbMau
+      };
+    });
+    const end = inc[inc.length - 1].to;
+    const res = await P.buildMonthlyReport({
+      start: params.start, end, lookbackDays: params.lookbackDays, weeks,
+      periodText: `${fmtDMY(params.start)} to ${fmtDMY(end)}`
+    }, st, pr, templateArrayBuffer);
+    res.filename = monthlyFilename(params);
+    res.monthly = {
+      start: params.start, end, lookbackDays: params.lookbackDays, plannedWeeks: params.weeks,
+      includedWeeks: inc.map(w => w.n), warnings: v.warnings.map(w => w.msg),
+      archiveDaysUsed: [...texts.keys()].filter(k => !manifest.days[k]).length, archiveError
+    };
+    return res;
+  }
+
   /* ---------- public API ---------- */
   const Store = {
     StoreError,
@@ -931,6 +1148,8 @@
     // data
     parseLogFiles, commitParsed, ingestLogFiles, resetStore, loadManifest, getSummary, summarize, formatLabel, coverageGrid,
     loadActivityForRange, validateRange, lookbackPreset, runRangeReport, reportFilename,
+    // monthly report (Monthly tab)
+    getCycle, loadArchiveIndex, monthlyWeeks, monthlyFilename, validateMonthly, runMonthlyReport, MONTHLY_LOOKBACK_DEFAULT,
     // helpers (exported for the UI + tests)
     dayKeyFromTs, todayKey, addDays, dayRange, fmtDMY, fmtShort, compressDays, monthLabel, fmtIst, isDayKey,
     parseDay, serializeDay, checkMonthGuard

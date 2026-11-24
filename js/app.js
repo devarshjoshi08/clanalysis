@@ -9,7 +9,7 @@
    * The Date-Range MAU Report is the main page and opens by default. The other
    * tools (Email Extractor, Adobe Data Preparation, Process + Adobe) sit in the
    * "More tools" menu; the menu button shows which of them is open. */
-  const rangeTabBtn = document.querySelector('.tab-btn[data-tab="range"]');
+  const topBtns = Array.from(document.querySelectorAll('.tabs > .tab-btn[data-tab]'));   // Date-Range + Monthly
   const toolsBtn = document.getElementById('toolsMenuBtn');
   const toolsMenu = document.getElementById('toolsMenu');
   const toolsLabel = document.getElementById('toolsMenuLabel');
@@ -18,9 +18,12 @@
   function showTab(name) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
     const item = toolItems.find(i => i.dataset.tab === name) || null;
-    rangeTabBtn.classList.toggle('active', !item);
+    topBtns.forEach(b => {
+      const on = !item && b.dataset.tab === name;
+      b.classList.toggle('active', on);
+      if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    });
     toolsBtn.classList.toggle('active', !!item);
-    if (item) rangeTabBtn.removeAttribute('aria-current'); else rangeTabBtn.setAttribute('aria-current', 'page');
     toolItems.forEach(i => { i.classList.toggle('current', i === item); if (i === item) i.setAttribute('aria-current', 'page'); else i.removeAttribute('aria-current'); });
     toolsLabel.textContent = item ? item.textContent : 'More tools';
   }
@@ -30,7 +33,7 @@
     toolsBtn.setAttribute('aria-expanded', String(open));
     if (open && focusFirst) (toolItems.find(i => i.classList.contains('current')) || toolItems[0]).focus();
   }
-  rangeTabBtn.addEventListener('click', () => { setMenu(false); showTab('range'); });
+  topBtns.forEach(b => b.addEventListener('click', () => { setMenu(false); showTab(b.dataset.tab); }));
   toolsBtn.addEventListener('click', e => { setMenu(!menuOpen(), e.detail === 0); });   // e.detail 0 = opened from the keyboard
   toolsBtn.addEventListener('keydown', e => { if (e.key === 'ArrowDown') { e.preventDefault(); setMenu(true, true); } });
   toolItems.forEach(item => item.addEventListener('click', () => { setMenu(false); showTab(item.dataset.tab); toolsBtn.focus(); }));
@@ -52,7 +55,7 @@
    *  - the code version below (bump APP_VERSION when the code changes);
    *  - a note when GitHub has a newer copy than the one on screen ("reload"), or
    *    when a change was just pushed and GitHub Pages is still publishing it. */
-  const APP_VERSION = '2026.10.09';
+  const APP_VERSION = '2026.11.24';
   const SiteVersion = (() => {
     const main = document.getElementById('siteVersionMain');
     const sub = document.getElementById('siteVersionSub');
@@ -760,6 +763,7 @@
     }
     applyDateHints();
     renderLabel(); renderCoverage(); renderAdmin(); renderValidation();
+    if (monthlyReady) renderMonthly();
   }
 
   storeRefresh.addEventListener('click', async () => {
@@ -780,6 +784,7 @@
     resetStoreBtn.classList.toggle('hidden', !(admin && st.configured));
     addCard.classList.toggle('hidden', !(admin && st.configured));
     addRunBtn.disabled = T4.busy || !T4.addList.length;
+    if (monthlyReady && !T4.busy) renderMonthly();
   }
   // An admin session lasts 12 hours and can run out while the page sits open: notice it and say so.
   setInterval(() => {
@@ -1197,6 +1202,187 @@
     }
   });
 
+  /* ============================================================
+   * MONTHLY MAU REPORT — the weeks of one cycle, each checked against its own look-back
+   * ============================================================ */
+  const M = { cycle: null, archive: null, archiveFor: '', archiveLoading: false, archiveError: '', archiveAt: 0, v: null };
+  const monStart = r$('monStart'), monWeeks = r$('monWeeks'), monLookback = r$('monLookback'), monUseCycle = r$('monUseCycle');
+  const monStore = r$('monStore'), monTableBody = document.querySelector('#monWeeksTable tbody'), monMsgs = r$('monMsgs');
+  const monBuildBtn = r$('monBuild'), monLoginBtn = r$('monLogin'), monAdminNote = r$('monAdminNote');
+  const monProgress = r$('monProgress'), monStatus = r$('monStatus'), monLogBox = r$('monLogBox');
+
+  function monLog(msg, type = 'info') {
+    if (!msg) return;
+    const entry = el('div', `log-entry ${type}`, `[${new Date().toLocaleTimeString()}] ${msg}`);
+    monLogBox.appendChild(entry);
+    monLogBox.scrollTop = monLogBox.scrollHeight;
+  }
+  const monParams = () => ({ start: monStart.value, weeks: parseInt(monWeeks.value, 10), lookbackDays: parseInt(monLookback.value, 10) });
+  const short = k => Store.fmtShort(k);
+
+  /** Admins can read earlier cycles from the archive: list which days it holds (cached for 5 minutes). */
+  async function loadMonthlyArchive(force) {
+    if (!Store.isAdmin() || M.archiveLoading) return;
+    if (!force && M.archive && M.archiveFor === Store.storeName() && Date.now() - M.archiveAt < 300000) return;
+    M.archiveLoading = true;
+    try { M.archive = (await Store.loadArchiveIndex()).days; M.archiveError = ''; }
+    catch (e) { if (sessionEnded(e)) { M.archive = null; } else { M.archive = null; M.archiveError = e.message || String(e); } }
+    finally { M.archiveLoading = false; M.archiveFor = Store.storeName(); M.archiveAt = Date.now(); }
+    renderMonthly();
+  }
+
+  /** Fill the form once: the admin's current cycle (if the service has one), else the first stored day. */
+  function applyMonthlyDefaults() {
+    const s = T4.summary;
+    if (M.cycle) {
+      const c = M.cycle, days = Store.dayRange(c.start, c.end).length;
+      monUseCycle.textContent = `Use current cycle${c.name ? ' “' + c.name + '”' : ''}: ${Store.fmtDMY(c.start)} to ${Store.fmtDMY(c.end)}`;
+      monUseCycle.classList.remove('hidden');
+      if (!monStart.value) { monStart.value = c.start; monWeeks.value = String(Math.min(6, Math.max(1, Math.round(days / 7)))); }
+    } else if (s && !s.empty && !monStart.value) monStart.value = s.firstDay;
+    monStart.max = Store.todayKey();
+  }
+
+  function renderMonthly() {
+    const admin = Store.isAdmin(), connected = Store.isConnected() && !!T4.summary;
+    if (!admin) { M.archive = null; M.archiveError = ''; }
+    else if (!M.archive && !M.archiveLoading && !M.archiveError) loadMonthlyArchive();
+    monLoginBtn.classList.toggle('hidden', admin || !Store.status().configured);
+    monAdminNote.textContent = admin
+      ? (M.archiveLoading ? '— admin: reading the archive list…' : (M.archive ? `— admin: archive readable (${plural(M.archive.size, 'day')})` : ''))
+      : '';
+    monStore.className = 'store-label';
+    if (!connected) {
+      monStore.classList.add(T4.loadError ? 'error' : 'warn');
+      monStore.textContent = T4.loadError ? `Could not read the store: ${T4.loadError}` : storeLabel.textContent;
+    } else {
+      monStore.textContent = Store.formatLabel(T4.summary);
+      monStore.classList.add(T4.summary.empty ? 'warn' : 'ok');
+    }
+    applyMonthlyDefaults();
+
+    const p = monParams();
+    monTableBody.textContent = '';
+    monMsgs.textContent = '';
+    if (!connected) {
+      M.v = null;
+      monMsgs.appendChild(el('div', 'msg error', !Store.status().configured ? "The shared store isn't set up yet." : (T4.loadError ? 'The store could not be read — press Refresh on the Date-Range tab.' : 'Reading the store…')));
+      monBuildBtn.disabled = true;
+      return null;
+    }
+    const v = Store.validateMonthly(p, {
+      manifest: T4.manifest, summary: T4.summary, archive: admin ? M.archive : null,
+      admin, archiveError: admin ? M.archiveError : '', today: Store.todayKey()
+    });
+    M.v = v;
+    for (const w of v.weeks) {
+      const tr = el('tr', w.included ? '' : 'off');
+      tr.appendChild(el('td', '', `Week ${w.n}`));
+      tr.appendChild(el('td', '', `${short(w.from)} – ${short(w.to)}`));
+      const lbGap = w.lbLocked.length + w.lbMissing.length;
+      const lbTxt = `${short(w.lbFrom)} – ${short(w.lbTo)}` +
+        (w.lbLocked.length ? ` (${plural(w.lbLocked.length, 'day')} need admin)` : (w.lbMissing.length ? ` (${plural(w.lbMissing.length, 'day')} missing)` : ''));
+      tr.appendChild(el('td', w.included && lbGap ? 'warn' : '', lbTxt));
+      let dataTxt, cls;
+      if (!w.included) { dataTxt = 'no data yet — left out'; cls = 'off'; }
+      else {
+        const have = Store.dayRange(w.from, w.dataTo).length - w.missing.length;
+        dataTxt = `${have} of 7 days` + (w.dataTo < w.to ? ` (up to ${short(w.dataTo)})` : '');
+        cls = have === 7 ? 'ok' : 'warn';
+      }
+      tr.appendChild(el('td', cls, dataTxt));
+      monTableBody.appendChild(tr);
+    }
+    for (const e of v.errors) monMsgs.appendChild(el('div', 'msg error', e.msg));
+    for (const w of v.warnings) monMsgs.appendChild(el('div', 'msg warn', w.msg));
+    monBuildBtn.disabled = T4.busy || v.errors.length > 0 || (admin && M.archiveLoading);
+    return v;
+  }
+
+  [monStart, monWeeks, monLookback].forEach(i => { i.addEventListener('input', renderMonthly); i.addEventListener('change', renderMonthly); });
+  monUseCycle.addEventListener('click', () => {
+    if (!M.cycle) return;
+    monStart.value = M.cycle.start;
+    monWeeks.value = String(Math.min(6, Math.max(1, Math.round(Store.dayRange(M.cycle.start, M.cycle.end).length / 7))));
+    renderMonthly();
+  });
+  monLoginBtn.addEventListener('click', async () => { await openLogin(); renderMonthly(); });
+  document.querySelector('button[data-tab="monthly"]').addEventListener('click', () => { refreshIfStale(); renderMonthly(); });
+
+  monBuildBtn.addEventListener('click', async () => {
+    if (T4.busy) return;
+    const p = monParams();
+    if (Store.isAdmin()) await loadMonthlyArchive(false);
+    const v = renderMonthly();
+    if (!v || v.errors.length) return;
+    if (v.warnings.length) {
+      const list = el('ul');
+      for (const w of v.warnings) list.appendChild(el('li', '', w.msg));
+      const wrap = el('div');
+      wrap.appendChild(el('p', '', 'Please check before building:'));
+      wrap.appendChild(list);
+      const go = await openDialog({ title: 'Check the monthly report', body: wrap, okText: 'Build anyway', cancelText: 'Go back' });
+      if (!go) return;
+    }
+    const filename = Store.monthlyFilename(p);
+    const pickerSupported = Processing.saveFolderPickerSupported();
+    const saveHandle = await Processing.pickSaveHandle(filename);
+    if (saveHandle === null) { setStatus(monStatus, 'Save cancelled — nothing was built'); return; }
+
+    T4.busy = true; monBuildBtn.disabled = true; rptBuildBtn.disabled = true;
+    setProgress(monProgress, 0);
+    monLogBox.textContent = '';
+    monLog(`Starting: monthly report from ${Store.fmtDMY(p.start)}, ${p.weeks} weeks, look-back ${p.lookbackDays} days before each week`, 'info');
+    if (!pickerSupported) monLog('Folder picker unavailable in this browser — the file will download to your Downloads folder.', 'error');
+    try {
+      const result = await Store.runMonthlyReport(
+        p,
+        msg => { setStatus(monStatus, msg); monLog(msg, 'info'); },
+        pct => setProgress(monProgress, pct)
+      );
+      const mo = result.monthly, tot = result.totalStudents;
+      const pct = n => tot ? `${(100 * n / tot).toFixed(1)}%` : '–';
+      const weekLines = result.weeks.map(w =>
+        `  Week ${w.n} (${Store.fmtDMY(w.from)} to ${Store.fmtDMY(w.to)}; look-back ${Store.fmtDMY(w.lbFrom)} to ${Store.fmtDMY(w.lbTo)}):\n` +
+        `    MAU ${w.mau.toLocaleString()} = New ${w.neu.toLocaleString()} + Repeated ${w.rep.toLocaleString()}  ·  cumulative New ${w.cumNew.toLocaleString()} (${pct(w.cumNew)})`).join('\n');
+      const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
+      const savedNote = outcome === 'saved'
+        ? `\n\nSaved as: ${saveHandle.name}`
+        : '\n\nThis browser can\'t open a folder picker (only Chrome or Edge over http/https can), so the file was downloaded to your Downloads folder instead.';
+      if (outcome === 'saved') monLog(`Saved as: ${saveHandle.name}`, 'success');
+      const msg =
+        'Monthly report complete!\n\n' +
+        `File: ${result.filename}\n` +
+        `Cycle: ${Store.fmtDMY(mo.start)} to ${Store.fmtDMY(mo.end)} (${mo.includedWeeks.length === 1 ? 'Week 1' : `Weeks 1–${mo.includedWeeks.length}`} of ${mo.plannedWeeks})\n` +
+        `Repeated check: the ${mo.lookbackDays} days before each week` +
+        (mo.archiveDaysUsed ? ` (${plural(mo.archiveDaysUsed, 'day')} read from the archive)` : '') + '\n\n' +
+        `By week:\n${weekLines}\n\n` +
+        `Students in roster: ${tot.toLocaleString()}\n` +
+        `Monthly New MAU: ${result.monthlyNew.toLocaleString()} (${pct(result.monthlyNew)})\n` +
+        `Repeated only (MAU this cycle, but already MAU before): ${result.repeatedOnly.toLocaleString()}\n` +
+        `Total active this cycle: ${result.totalActive.toLocaleString()} (${pct(result.totalActive)})\n` +
+        `Completed earlier only (no MAU this cycle): ${result.earlierOnly.toLocaleString()}\n` +
+        `Pending: ${result.pending.toLocaleString()}\n` +
+        `Logged in this cycle: ${result.logStudents.toLocaleString()}` +
+        (mo.warnings.length ? `\n\nNotes:\n${mo.warnings.map(w => '  • ' + w).join('\n')}` : '');
+      monLog(`Done — Monthly New MAU ${result.monthlyNew.toLocaleString()} (${pct(result.monthlyNew)}), Repeated only ${result.repeatedOnly.toLocaleString()}, of ${tot.toLocaleString()} students`, 'success');
+      setStatus(monStatus, outcome === 'saved' ? 'Report saved!' : 'Report downloaded to your Downloads folder.', 'success');
+      showModal('Monthly MAU Report', msg + savedNote, { blob: result.blob, filename: result.filename });
+    } catch (err) {
+      console.error(err);
+      sessionEnded(err);
+      monLog(`ERROR: ${err.message}`, 'error');
+      setStatus(monStatus, `Error: ${err.message}`, 'error');
+      showModal('Error', `Error building the monthly report:\n\n${err.message}`);
+    } finally {
+      T4.busy = false;
+      renderValidation();
+      renderMonthly();
+    }
+  });
+
+  var monthlyReady = true;   // renderAdmin / refreshStore may now redraw the Monthly tab
+
   /* ---------- start-up: open the shared store for everyone ---------- */
   (async () => {
     renderAdmin(); renderValidation(); renderLabel();
@@ -1204,6 +1390,8 @@
     catch (e) { console.error(e); }
     T4.wasAdmin = Store.isAdmin();          // an admin session from earlier in this tab carries over a reload
     await refreshStore(true);
+    M.cycle = await Store.getCycle();       // the admin's current reporting cycle → default for the Monthly tab
+    renderMonthly();
   })();
 
 })();

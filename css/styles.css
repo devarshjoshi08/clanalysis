@@ -456,13 +456,13 @@ html, body {
 .form-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-bottom: 12px; }
 .field { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
 .radio { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-input[type="date"], input[type="password"], input[type="text"] {
+input[type="date"], input[type="password"], input[type="text"], input[type="number"], .field select {
   background: var(--surface-3); color: var(--text);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 7px 10px; font-size: 13px; font-family: inherit;
   color-scheme: dark;
 }
-input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus { outline: 2px solid var(--primary-light); outline-offset: 1px; }
+input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus, input[type="number"]:focus, .field select:focus { outline: 2px solid var(--primary-light); outline-offset: 1px; }
 .repeat-box { border-left: 3px solid var(--border); padding: 4px 0 0 14px; margin-bottom: 8px; }
 .presets { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .btn-chip {
@@ -522,6 +522,18 @@ input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus
   .admin-bar { margin-left: 0; width: 100%; }
   .cov-grid { grid-template-columns: repeat(10, 20px); }
 }
+
+/* ===== Monthly MAU Report ===== */
+.num-input { width: 72px; }
+#monStore { margin-bottom: 14px; }
+.table-wrap { overflow-x: auto; margin: 4px 0 12px 0; }
+.weeks-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.weeks-table th, .weeks-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; white-space: nowrap; }
+.weeks-table th { background: var(--surface-3); color: var(--text-muted); font-weight: 600; }
+.weeks-table td.ok { color: var(--success); }
+.weeks-table td.warn { color: var(--warning); }
+.weeks-table td.off { color: var(--text-muted); }
+.weeks-table tr.off td { opacity: 0.6; }
 
 /* ===== Responsive ===== */
 @media (max-width: 640px) {

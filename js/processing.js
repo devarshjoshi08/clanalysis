@@ -1463,6 +1463,160 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
   return buildReportFromActivity(activity, opts, status, progress, templateArrayBuffer);
 }
 
+/* ============================================================
+ * Monthly MAU report (Monthly tab) — rolling look-back per week
+ *
+ * The cycle is split into weeks of 7 days from the cycle start. For every week,
+ * the look-back is the N days (default 28) that end the day before the week starts:
+ *   MAU this week + MAU in its look-back → Repeated (not counted again)
+ *   MAU this week only                   → New
+ *   MAU in look-back only                → Completed earlier
+ *   neither                              → Pending
+ * Monthly New MAU = students who were New in at least one week. With a 28-day
+ * look-back a student can be New in only one week of a 4–5 week cycle (every later
+ * week's look-back covers the earlier weeks), so it equals the sum of the weekly New.
+ * ============================================================ */
+const MONTHLY_STATUS = { New: 'N', Repeated: 'R', 'Completed earlier': 'C', Pending: 'P' };
+
+/** State-wise week-by-week New / Repeated + monthly totals (the 'Weekly_State' sheet). */
+function computeMonthlyStateTable(rows, weeks) {
+  const by = new Map();
+  const blank = () => ({ tot: 0, neu: weeks.map(() => 0), rep: weeks.map(() => 0), mNew: 0, repOnly: 0 });
+  const T = blank();
+  for (const r of rows) {
+    const st = r['state'] == null || String(r['state']).trim() === '' ? '(blank)' : r['state'];
+    if (!by.has(st)) by.set(st, blank());
+    for (const s of [by.get(st), T]) {
+      s.tot++;
+      weeks.forEach((w, i) => {
+        const v = r[`Week ${w.n} Status`];
+        if (v === 'New') s.neu[i]++; else if (v === 'Repeated') s.rep[i]++;
+      });
+      if (r._newMau) s.mNew++; else if (r._repeated) s.repOnly++;
+    }
+  }
+  const mk = (name, s) => {
+    const o = { States: name, 'Total Students': s.tot };
+    weeks.forEach((w, i) => { o[`W${w.n} New`] = s.neu[i]; o[`W${w.n} Repeated`] = s.rep[i]; });
+    o['Monthly New MAU'] = s.mNew;
+    o['Repeated only'] = s.repOnly;
+    o['Total active'] = s.mNew + s.repOnly;
+    o['% Monthly New MAU'] = safePct(s.mNew, s.tot);
+    o['% Total active'] = safePct(s.mNew + s.repOnly, s.tot);
+    return o;
+  };
+  const out = [...by.entries()].map(([k, s]) => mk(k, s))
+    .sort((a, b) => (b['% Monthly New MAU'] || 0) - (a['% Monthly New MAU'] || 0));
+  out.push(mk('Total', T));
+  return out;
+}
+
+/**
+ * Build the monthly workbook.
+ * @param data {start, end, lookbackDays, weeks:[{n, from, to, lbFrom, lbTo, periodText, lookbackText,
+ *              daysWithData, daysPlanned, missingText, lbMissingText, mau:Map(email→ts), login:Set, lbMau:Set}]}
+ */
+async function buildMonthlyReport(data, onStatus, onProgress, templateArrayBuffer) {
+  const status = onStatus || (() => {});
+  const progress = onProgress || (() => {});
+  const weeks = data.weeks || [];
+  if (!weeks.length) throw new Error('No weeks to report.');
+
+  progress(16);
+  const { tsv, fromCache } = await loadRosterTSV(status, templateArrayBuffer);
+  const rosterRows = rosterTSVToRows(tsv);
+  if (rosterRows.length < 1) throw new Error('Template roster has no data rows.');
+  progress(48);
+
+  status('Classifying every student week by week (New / Repeated / Completed earlier / Pending)…'); progress(56);
+  const wk = weeks.map(() => ({ neu: 0, rep: 0, prev: 0, pend: 0 }));
+  let monthlyNew = 0, repeatedOnly = 0, earlierOnly = 0, pending = 0, logYes = 0, mauDated = 0;
+  for (const r of rosterRows) {
+    const em = String(r[TEMPLATE_EMAIL_COL] == null ? '' : r[TEMPLATE_EMAIL_COL]).trim().toLowerCase();
+    let newWeek = 0, anyMau = false, anyLb = false, anyLogin = false, firstTs;
+    weeks.forEach((w, i) => {
+      const thisMau = em !== '' && w.mau.has(em);
+      const was = em !== '' && w.lbMau.has(em);
+      let s;
+      if (thisMau && was) { s = 'Repeated'; wk[i].rep++; }
+      else if (thisMau) { s = 'New'; wk[i].neu++; if (!newWeek) newWeek = w.n; }
+      else if (was) { s = 'Completed earlier'; wk[i].prev++; }
+      else { s = 'Pending'; wk[i].pend++; }
+      r[`Week ${w.n} Status`] = s;
+      if (thisMau) { anyMau = true; const ts = w.mau.get(em); if (firstTs === undefined || ts < firstTs) firstTs = ts; }
+      if (was) anyLb = true;
+      if (em !== '' && w.login.has(em)) anyLogin = true;
+    });
+    r['Completed MAU?'] = anyMau ? 'Yes' : 'No';
+    r['First MAU Date'] = firstTs !== undefined ? toIstDate(firstTs) : '';
+    r['Logged In?'] = anyLogin ? 'Yes' : 'No';
+    r['New MAU Week'] = newWeek ? `Week ${newWeek}` : '';
+    let ms;
+    if (newWeek) { ms = 'New MAU'; monthlyNew++; }
+    else if (anyMau) { ms = 'Repeated only'; repeatedOnly++; }
+    else if (anyLb) { ms = 'Completed earlier only'; earlierOnly++; }
+    else { ms = 'Pending'; pending++; }
+    r['Monthly Status'] = ms;
+    r._newMau = newWeek ? 1 : 0;
+    r._repeated = !newWeek && anyMau ? 1 : 0;
+    r._pending = ms === 'Pending' ? 1 : 0;
+    if (anyLogin) logYes++;
+    if (firstTs !== undefined) mauDated++;
+  }
+
+  status('Normalizing and computing summaries…'); progress(70);
+  const normRows = normalizeGroupingColumns(rosterRows);
+  const summaries = relabelRangeSummaries(computeSummaries(normRows, true));
+  const mauDist = computeSchoolDistribution(normRows, true);
+  const stateTable = computeMonthlyStateTable(normRows, weeks);
+
+  const total = rosterRows.length;
+  let cum = 0;
+  const overview = weeks.map((w, i) => {
+    cum += wk[i].neu;
+    return {
+      Week: `Week ${w.n}`,
+      'Report period': w.periodText,
+      'Look-back (Repeated check)': w.lookbackText,
+      'Days with data': `${w.daysWithData} of ${w.daysPlanned}`,
+      'Missing days': w.missingText || '',
+      'Look-back missing days': w.lbMissingText || '',
+      'MAU in week': wk[i].neu + wk[i].rep,
+      'New MAU': wk[i].neu,
+      'Repeated': wk[i].rep,
+      'Completed earlier': wk[i].prev,
+      'Pending': wk[i].pend,
+      'Cumulative New MAU': cum,
+      '% Cumulative New MAU': safePct(cum, total)
+    };
+  });
+  overview.push({
+    Week: 'Total', 'Report period': data.periodText || '', 'Look-back (Repeated check)': `${data.lookbackDays} days before each week`,
+    'Days with data': '', 'Missing days': '', 'Look-back missing days': '',
+    'MAU in week': monthlyNew + repeatedOnly, 'New MAU': monthlyNew, 'Repeated': repeatedOnly, 'Completed earlier': earlierOnly, 'Pending': pending,
+    'Cumulative New MAU': monthlyNew, '% Cumulative New MAU': safePct(monthlyNew, total)
+  });
+
+  status('Building the monthly Excel file (incl. student-level Raw_Data)…'); progress(86);
+  const wb = new ExcelJS.Workbook();
+  addTitledTableSheet(wb, 'Week_Overview',
+    `Monthly MAU — ${data.periodText || ''} · Repeated = MAU in the ${data.lookbackDays} days before each week (Total row: MAU in week = active in month, Repeated = repeated only)`, overview);
+  addTitledTableSheet(wb, 'Weekly_State', 'State-wise New / Repeated MAU by week', stateTable);
+  addSummarySheets(wb, summaries, mauDist);
+  const rawCols = PA_RAW_COLS.concat(weeks.map(w => `Week ${w.n} Status`), ['New MAU Week', 'Monthly Status']);
+  addRowSheet(wb, 'Raw_Data', rawCols, normRows);
+  const buf = await writeWorkbookBuffer(wb);
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  progress(100);
+
+  return {
+    blob, totalStudents: total, monthlyNew, repeatedOnly, earlierOnly, pending, totalActive: monthlyNew + repeatedOnly,
+    logStudents: logYes, mauWithDate: mauDated, rosterFromCache: fromCache,
+    weeks: weeks.map((w, i) => ({ n: w.n, from: w.from, to: w.to, lbFrom: w.lbFrom, lbTo: w.lbTo, ...wk[i], mau: wk[i].neu + wk[i].rep, cumNew: overview[i]['Cumulative New MAU'] })),
+    summaries, mauDist, stateTable, overview
+  };
+}
+
 function dateStamp() {
   const d = new Date();
   const dd = String(d.getDate()).padStart(2, '0');
@@ -1484,6 +1638,7 @@ window.Processing = {
   processAndPrepareAdobe,
   collectActivityFromLogs,
   buildReportFromActivity,
+  buildMonthlyReport,
   parseLogTimestamp,
   IST_OFFSET_MS,
   fetchAdobeTemplate

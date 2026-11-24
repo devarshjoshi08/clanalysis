@@ -27,6 +27,7 @@
 <!-- The Date-Range MAU Report is the main page; the other tools sit in the "More tools" menu. -->
 <nav class="tabs" aria-label="Sections">
   <button class="tab-btn active" data-tab="range" aria-current="page">Date-Range MAU Report</button>
+  <button class="tab-btn" data-tab="monthly">Monthly MAU Report</button>
   <div class="tools-menu">
     <button id="toolsMenuBtn" class="tab-btn tools-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="toolsMenu">
       <span id="toolsMenuLabel">More tools</span><svg class="caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -249,6 +250,52 @@
       <div class="log-box-wrap">
         <div class="log-box-label">Progress Log:</div>
         <div id="rptLogBox" class="log-box"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MONTHLY MAU REPORT (weeks of a cycle, rolling look-back) ============ -->
+  <section id="tab-monthly" class="tab-pane">
+    <div class="features">
+      <strong>Monthly MAU Report</strong>
+      <p>One file for the whole reporting cycle, built week by week from the same shared daily store. For <strong>every week</strong>, students who were already MAU in the <strong>look-back</strong> (by default the 28 days before that week starts) count as <strong>Repeated</strong>, not New MAU.</p>
+      <ul>
+        <li>Example: cycle from 31 Oct &rarr; Week 1 = 31 Oct&ndash;6 Nov, checked against 3&ndash;30 Oct; Week 2 = 7&ndash;13 Nov, checked against 10 Oct&ndash;6 Nov; and so on.</li>
+        <li><strong>Monthly New MAU</strong> = students who were New in any week (each student is counted once).</li>
+        <li>The file has a week overview, a state-wise week-by-week table, the usual State / LIC / Lead / Manager summaries and Raw_Data with each student&rsquo;s status for every week.</li>
+        <li>Week 1&rsquo;s look-back usually falls in the previous cycle, which is kept in the store&rsquo;s archive. Only an admin can read the archive, so <strong>log in as admin</strong> (link under the Build button) for exact Repeated counts.</li>
+      </ul>
+    </div>
+
+    <div class="card" id="monCard">
+      <div class="card-title">Build monthly report <span id="monAdminNote" class="card-sub"></span></div>
+      <div id="monStore" class="store-label">Reading the store…</div>
+      <div class="form-row">
+        <label class="field">Cycle starts on <input type="date" id="monStart"></label>
+        <label class="field">Weeks
+          <select id="monWeeks"><option value="4" selected>4 weeks</option><option value="5">5 weeks</option><option value="6">6 weeks</option></select>
+        </label>
+        <label class="field">Look-back (days) <input type="number" id="monLookback" min="1" max="62" step="1" value="28" class="num-input"></label>
+        <button type="button" id="monUseCycle" class="btn-chip hidden"></button>
+      </div>
+      <div class="table-wrap">
+        <table id="monWeeksTable" class="weeks-table">
+          <thead><tr><th>Week</th><th>Report period</th><th>Look-back (Repeated check)</th><th>Data</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="monMsgs" class="msgs"></div>
+      <div class="actions">
+        <button id="monBuild" class="btn btn-primary" disabled>Build monthly report</button>
+        <button id="monLogin" class="link-btn hidden" type="button">Admin login</button>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-bar"><div id="monProgress" class="progress-fill"></div></div>
+        <div id="monStatus" class="status">Ready</div>
+      </div>
+      <div class="log-box-wrap">
+        <div class="log-box-label">Progress Log:</div>
+        <div id="monLogBox" class="log-box"></div>
       </div>
     </div>
   </section>

@@ -1,0 +1,773 @@
+diff --git a/css/styles.css b/css/styles.css
+index da939a4..92c9771 100644
+--- a/css/styles.css
++++ b/css/styles.css
+@@ -456,13 +456,13 @@ html, body {
+ .form-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-bottom: 12px; }
+ .field { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+ .radio { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+-input[type="date"], input[type="password"], input[type="text"] {
++input[type="date"], input[type="password"], input[type="text"], input[type="number"], .field select {
+   background: var(--surface-3); color: var(--text);
+   border: 1px solid var(--border); border-radius: 4px;
+   padding: 7px 10px; font-size: 13px; font-family: inherit;
+   color-scheme: dark;
+ }
+-input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus { outline: 2px solid var(--primary-light); outline-offset: 1px; }
++input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus, input[type="number"]:focus, .field select:focus { outline: 2px solid var(--primary-light); outline-offset: 1px; }
+ .repeat-box { border-left: 3px solid var(--border); padding: 4px 0 0 14px; margin-bottom: 8px; }
+ .presets { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+ .btn-chip {
+@@ -523,6 +523,18 @@ input[type="date"]:focus, input[type="password"]:focus, input[type="text"]:focus
+   .cov-grid { grid-template-columns: repeat(10, 20px); }
+ }
+ 
++/* ===== Monthly MAU Report ===== */
++.num-input { width: 72px; }
++#monStore { margin-bottom: 14px; }
++.table-wrap { overflow-x: auto; margin: 4px 0 12px 0; }
++.weeks-table { border-collapse: collapse; width: 100%; font-size: 13px; }
++.weeks-table th, .weeks-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; white-space: nowrap; }
++.weeks-table th { background: var(--surface-3); color: var(--text-muted); font-weight: 600; }
++.weeks-table td.ok { color: var(--success); }
++.weeks-table td.warn { color: var(--warning); }
++.weeks-table td.off { color: var(--text-muted); }
++.weeks-table tr.off td { opacity: 0.6; }
++
+ /* ===== Responsive ===== */
+ @media (max-width: 640px) {
+   .content { padding: 20px 16px; }
+diff --git a/index.html b/index.html
+index 2c626dd..d287266 100644
+--- a/index.html
++++ b/index.html
+@@ -27,6 +27,7 @@
+ <!-- The Date-Range MAU Report is the main page; the other tools sit in the "More tools" menu. -->
+ <nav class="tabs" aria-label="Sections">
+   <button class="tab-btn active" data-tab="range" aria-current="page">Date-Range MAU Report</button>
++  <button class="tab-btn" data-tab="monthly">Monthly MAU Report</button>
+   <div class="tools-menu">
+     <button id="toolsMenuBtn" class="tab-btn tools-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="toolsMenu">
+       <span id="toolsMenuLabel">More tools</span><svg class="caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+@@ -253,6 +254,52 @@
+     </div>
+   </section>
+ 
++  <!-- ============ MONTHLY MAU REPORT (weeks of a cycle, rolling look-back) ============ -->
++  <section id="tab-monthly" class="tab-pane">
++    <div class="features">
++      <strong>Monthly MAU Report</strong>
++      <p>One file for the whole reporting cycle, built week by week from the same shared daily store. For <strong>every week</strong>, students who were already MAU in the <strong>look-back</strong> (by default the 28 days before that week starts) count as <strong>Repeated</strong>, not New MAU.</p>
++      <ul>
++        <li>Example: cycle from 31 Oct &rarr; Week 1 = 31 Oct&ndash;6 Nov, checked against 3&ndash;30 Oct; Week 2 = 7&ndash;13 Nov, checked against 10 Oct&ndash;6 Nov; and so on.</li>
++        <li><strong>Monthly New MAU</strong> = students who were New in any week (each student is counted once).</li>
++        <li>The file has a week overview, a state-wise week-by-week table, the usual State / LIC / Lead / Manager summaries and Raw_Data with each student&rsquo;s status for every week.</li>
++        <li>Week 1&rsquo;s look-back usually falls in the previous cycle, which is kept in the store&rsquo;s archive. Only an admin can read the archive, so <strong>log in as admin</strong> (link under the Build button) for exact Repeated counts.</li>
++      </ul>
++    </div>
++
++    <div class="card" id="monCard">
++      <div class="card-title">Build monthly report <span id="monAdminNote" class="card-sub"></span></div>
++      <div id="monStore" class="store-label">Reading the store…</div>
++      <div class="form-row">
++        <label class="field">Cycle starts on <input type="date" id="monStart"></label>
++        <label class="field">Weeks
++          <select id="monWeeks"><option value="4" selected>4 weeks</option><option value="5">5 weeks</option><option value="6">6 weeks</option></select>
++        </label>
++        <label class="field">Look-back (days) <input type="number" id="monLookback" min="1" max="62" step="1" value="28" class="num-input"></label>
++        <button type="button" id="monUseCycle" class="btn-chip hidden"></button>
++      </div>
++      <div class="table-wrap">
++        <table id="monWeeksTable" class="weeks-table">
++          <thead><tr><th>Week</th><th>Report period</th><th>Look-back (Repeated check)</th><th>Data</th></tr></thead>
++          <tbody></tbody>
++        </table>
++      </div>
++      <div id="monMsgs" class="msgs"></div>
++      <div class="actions">
++        <button id="monBuild" class="btn btn-primary" disabled>Build monthly report</button>
++        <button id="monLogin" class="link-btn hidden" type="button">Admin login</button>
++      </div>
++      <div class="progress-wrap">
++        <div class="progress-bar"><div id="monProgress" class="progress-fill"></div></div>
++        <div id="monStatus" class="status">Ready</div>
++      </div>
++      <div class="log-box-wrap">
++        <div class="log-box-label">Progress Log:</div>
++        <div id="monLogBox" class="log-box"></div>
++      </div>
++    </div>
++  </section>
++
+ </main>
+ 
+ <!-- Modal for summary dialogs -->
+diff --git a/js/app.js b/js/app.js
+index 0b53fe0..8e439df 100644
+--- a/js/app.js
++++ b/js/app.js
+@@ -9,7 +9,7 @@
+    * The Date-Range MAU Report is the main page and opens by default. The other
+    * tools (Email Extractor, Adobe Data Preparation, Process + Adobe) sit in the
+    * "More tools" menu; the menu button shows which of them is open. */
+-  const rangeTabBtn = document.querySelector('.tab-btn[data-tab="range"]');
++  const topBtns = Array.from(document.querySelectorAll('.tabs > .tab-btn[data-tab]'));   // Date-Range + Monthly
+   const toolsBtn = document.getElementById('toolsMenuBtn');
+   const toolsMenu = document.getElementById('toolsMenu');
+   const toolsLabel = document.getElementById('toolsMenuLabel');
+@@ -18,9 +18,12 @@
+   function showTab(name) {
+     document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
+     const item = toolItems.find(i => i.dataset.tab === name) || null;
+-    rangeTabBtn.classList.toggle('active', !item);
++    topBtns.forEach(b => {
++      const on = !item && b.dataset.tab === name;
++      b.classList.toggle('active', on);
++      if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
++    });
+     toolsBtn.classList.toggle('active', !!item);
+-    if (item) rangeTabBtn.removeAttribute('aria-current'); else rangeTabBtn.setAttribute('aria-current', 'page');
+     toolItems.forEach(i => { i.classList.toggle('current', i === item); if (i === item) i.setAttribute('aria-current', 'page'); else i.removeAttribute('aria-current'); });
+     toolsLabel.textContent = item ? item.textContent : 'More tools';
+   }
+@@ -30,7 +33,7 @@
+     toolsBtn.setAttribute('aria-expanded', String(open));
+     if (open && focusFirst) (toolItems.find(i => i.classList.contains('current')) || toolItems[0]).focus();
+   }
+-  rangeTabBtn.addEventListener('click', () => { setMenu(false); showTab('range'); });
++  topBtns.forEach(b => b.addEventListener('click', () => { setMenu(false); showTab(b.dataset.tab); }));
+   toolsBtn.addEventListener('click', e => { setMenu(!menuOpen(), e.detail === 0); });   // e.detail 0 = opened from the keyboard
+   toolsBtn.addEventListener('keydown', e => { if (e.key === 'ArrowDown') { e.preventDefault(); setMenu(true, true); } });
+   toolItems.forEach(item => item.addEventListener('click', () => { setMenu(false); showTab(item.dataset.tab); toolsBtn.focus(); }));
+@@ -52,7 +55,7 @@
+    *  - the code version below (bump APP_VERSION when the code changes);
+    *  - a note when GitHub has a newer copy than the one on screen ("reload"), or
+    *    when a change was just pushed and GitHub Pages is still publishing it. */
+-  const APP_VERSION = '2026.10.09';
++  const APP_VERSION = '2026.11.24';
+   const SiteVersion = (() => {
+     const main = document.getElementById('siteVersionMain');
+     const sub = document.getElementById('siteVersionSub');
+@@ -760,6 +763,7 @@
+     }
+     applyDateHints();
+     renderLabel(); renderCoverage(); renderAdmin(); renderValidation();
++    if (monthlyReady) renderMonthly();
+   }
+ 
+   storeRefresh.addEventListener('click', async () => {
+@@ -780,6 +784,7 @@
+     resetStoreBtn.classList.toggle('hidden', !(admin && st.configured));
+     addCard.classList.toggle('hidden', !(admin && st.configured));
+     addRunBtn.disabled = T4.busy || !T4.addList.length;
++    if (monthlyReady && !T4.busy) renderMonthly();
+   }
+   // An admin session lasts 12 hours and can run out while the page sits open: notice it and say so.
+   setInterval(() => {
+@@ -1197,6 +1202,187 @@
+     }
+   });
+ 
++  /* ============================================================
++   * MONTHLY MAU REPORT — the weeks of one cycle, each checked against its own look-back
++   * ============================================================ */
++  const M = { cycle: null, archive: null, archiveFor: '', archiveLoading: false, archiveError: '', archiveAt: 0, v: null };
++  const monStart = r$('monStart'), monWeeks = r$('monWeeks'), monLookback = r$('monLookback'), monUseCycle = r$('monUseCycle');
++  const monStore = r$('monStore'), monTableBody = document.querySelector('#monWeeksTable tbody'), monMsgs = r$('monMsgs');
++  const monBuildBtn = r$('monBuild'), monLoginBtn = r$('monLogin'), monAdminNote = r$('monAdminNote');
++  const monProgress = r$('monProgress'), monStatus = r$('monStatus'), monLogBox = r$('monLogBox');
++
++  function monLog(msg, type = 'info') {
++    if (!msg) return;
++    const entry = el('div', `log-entry ${type}`, `[${new Date().toLocaleTimeString()}] ${msg}`);
++    monLogBox.appendChild(entry);
++    monLogBox.scrollTop = monLogBox.scrollHeight;
++  }
++  const monParams = () => ({ start: monStart.value, weeks: parseInt(monWeeks.value, 10), lookbackDays: parseInt(monLookback.value, 10) });
++  const short = k => Store.fmtShort(k);
++
++  /** Admins can read earlier cycles from the archive: list which days it holds (cached for 5 minutes). */
++  async function loadMonthlyArchive(force) {
++    if (!Store.isAdmin() || M.archiveLoading) return;
++    if (!force && M.archive && M.archiveFor === Store.storeName() && Date.now() - M.archiveAt < 300000) return;
++    M.archiveLoading = true;
++    try { M.archive = (await Store.loadArchiveIndex()).days; M.archiveError = ''; }
++    catch (e) { if (sessionEnded(e)) { M.archive = null; } else { M.archive = null; M.archiveError = e.message || String(e); } }
++    finally { M.archiveLoading = false; M.archiveFor = Store.storeName(); M.archiveAt = Date.now(); }
++    renderMonthly();
++  }
++
++  /** Fill the form once: the admin's current cycle (if the service has one), else the first stored day. */
++  function applyMonthlyDefaults() {
++    const s = T4.summary;
++    if (M.cycle) {
++      const c = M.cycle, days = Store.dayRange(c.start, c.end).length;
++      monUseCycle.textContent = `Use current cycle${c.name ? ' “' + c.name + '”' : ''}: ${Store.fmtDMY(c.start)} to ${Store.fmtDMY(c.end)}`;
++      monUseCycle.classList.remove('hidden');
++      if (!monStart.value) { monStart.value = c.start; monWeeks.value = String(Math.min(6, Math.max(1, Math.round(days / 7)))); }
++    } else if (s && !s.empty && !monStart.value) monStart.value = s.firstDay;
++    monStart.max = Store.todayKey();
++  }
++
++  function renderMonthly() {
++    const admin = Store.isAdmin(), connected = Store.isConnected() && !!T4.summary;
++    if (!admin) { M.archive = null; M.archiveError = ''; }
++    else if (!M.archive && !M.archiveLoading && !M.archiveError) loadMonthlyArchive();
++    monLoginBtn.classList.toggle('hidden', admin || !Store.status().configured);
++    monAdminNote.textContent = admin
++      ? (M.archiveLoading ? '— admin: reading the archive list…' : (M.archive ? `— admin: archive readable (${plural(M.archive.size, 'day')})` : ''))
++      : '';
++    monStore.className = 'store-label';
++    if (!connected) {
++      monStore.classList.add(T4.loadError ? 'error' : 'warn');
++      monStore.textContent = T4.loadError ? `Could not read the store: ${T4.loadError}` : storeLabel.textContent;
++    } else {
++      monStore.textContent = Store.formatLabel(T4.summary);
++      monStore.classList.add(T4.summary.empty ? 'warn' : 'ok');
++    }
++    applyMonthlyDefaults();
++
++    const p = monParams();
++    monTableBody.textContent = '';
++    monMsgs.textContent = '';
++    if (!connected) {
++      M.v = null;
++      monMsgs.appendChild(el('div', 'msg error', !Store.status().configured ? "The shared store isn't set up yet." : (T4.loadError ? 'The store could not be read — press Refresh on the Date-Range tab.' : 'Reading the store…')));
++      monBuildBtn.disabled = true;
++      return null;
++    }
++    const v = Store.validateMonthly(p, {
++      manifest: T4.manifest, summary: T4.summary, archive: admin ? M.archive : null,
++      admin, archiveError: admin ? M.archiveError : '', today: Store.todayKey()
++    });
++    M.v = v;
++    for (const w of v.weeks) {
++      const tr = el('tr', w.included ? '' : 'off');
++      tr.appendChild(el('td', '', `Week ${w.n}`));
++      tr.appendChild(el('td', '', `${short(w.from)} – ${short(w.to)}`));
++      const lbGap = w.lbLocked.length + w.lbMissing.length;
++      const lbTxt = `${short(w.lbFrom)} – ${short(w.lbTo)}` +
++        (w.lbLocked.length ? ` (${plural(w.lbLocked.length, 'day')} need admin)` : (w.lbMissing.length ? ` (${plural(w.lbMissing.length, 'day')} missing)` : ''));
++      tr.appendChild(el('td', w.included && lbGap ? 'warn' : '', lbTxt));
++      let dataTxt, cls;
++      if (!w.included) { dataTxt = 'no data yet — left out'; cls = 'off'; }
++      else {
++        const have = Store.dayRange(w.from, w.dataTo).length - w.missing.length;
++        dataTxt = `${have} of 7 days` + (w.dataTo < w.to ? ` (up to ${short(w.dataTo)})` : '');
++        cls = have === 7 ? 'ok' : 'warn';
++      }
++      tr.appendChild(el('td', cls, dataTxt));
++      monTableBody.appendChild(tr);
++    }
++    for (const e of v.errors) monMsgs.appendChild(el('div', 'msg error', e.msg));
++    for (const w of v.warnings) monMsgs.appendChild(el('div', 'msg warn', w.msg));
++    monBuildBtn.disabled = T4.busy || v.errors.length > 0 || (admin && M.archiveLoading);
++    return v;
++  }
++
++  [monStart, monWeeks, monLookback].forEach(i => { i.addEventListener('input', renderMonthly); i.addEventListener('change', renderMonthly); });
++  monUseCycle.addEventListener('click', () => {
++    if (!M.cycle) return;
++    monStart.value = M.cycle.start;
++    monWeeks.value = String(Math.min(6, Math.max(1, Math.round(Store.dayRange(M.cycle.start, M.cycle.end).length / 7))));
++    renderMonthly();
++  });
++  monLoginBtn.addEventListener('click', async () => { await openLogin(); renderMonthly(); });
++  document.querySelector('button[data-tab="monthly"]').addEventListener('click', () => { refreshIfStale(); renderMonthly(); });
++
++  monBuildBtn.addEventListener('click', async () => {
++    if (T4.busy) return;
++    const p = monParams();
++    if (Store.isAdmin()) await loadMonthlyArchive(false);
++    const v = renderMonthly();
++    if (!v || v.errors.length) return;
++    if (v.warnings.length) {
++      const list = el('ul');
++      for (const w of v.warnings) list.appendChild(el('li', '', w.msg));
++      const wrap = el('div');
++      wrap.appendChild(el('p', '', 'Please check before building:'));
++      wrap.appendChild(list);
++      const go = await openDialog({ title: 'Check the monthly report', body: wrap, okText: 'Build anyway', cancelText: 'Go back' });
++      if (!go) return;
++    }
++    const filename = Store.monthlyFilename(p);
++    const pickerSupported = Processing.saveFolderPickerSupported();
++    const saveHandle = await Processing.pickSaveHandle(filename);
++    if (saveHandle === null) { setStatus(monStatus, 'Save cancelled — nothing was built'); return; }
++
++    T4.busy = true; monBuildBtn.disabled = true; rptBuildBtn.disabled = true;
++    setProgress(monProgress, 0);
++    monLogBox.textContent = '';
++    monLog(`Starting: monthly report from ${Store.fmtDMY(p.start)}, ${p.weeks} weeks, look-back ${p.lookbackDays} days before each week`, 'info');
++    if (!pickerSupported) monLog('Folder picker unavailable in this browser — the file will download to your Downloads folder.', 'error');
++    try {
++      const result = await Store.runMonthlyReport(
++        p,
++        msg => { setStatus(monStatus, msg); monLog(msg, 'info'); },
++        pct => setProgress(monProgress, pct)
++      );
++      const mo = result.monthly, tot = result.totalStudents;
++      const pct = n => tot ? `${(100 * n / tot).toFixed(1)}%` : '–';
++      const weekLines = result.weeks.map(w =>
++        `  Week ${w.n} (${Store.fmtDMY(w.from)} to ${Store.fmtDMY(w.to)}; look-back ${Store.fmtDMY(w.lbFrom)} to ${Store.fmtDMY(w.lbTo)}):\n` +
++        `    MAU ${w.mau.toLocaleString()} = New ${w.neu.toLocaleString()} + Repeated ${w.rep.toLocaleString()}  ·  cumulative New ${w.cumNew.toLocaleString()} (${pct(w.cumNew)})`).join('\n');
++      const outcome = await Processing.saveBlob(result.blob, result.filename, saveHandle);
++      const savedNote = outcome === 'saved'
++        ? `\n\nSaved as: ${saveHandle.name}`
++        : '\n\nThis browser can\'t open a folder picker (only Chrome or Edge over http/https can), so the file was downloaded to your Downloads folder instead.';
++      if (outcome === 'saved') monLog(`Saved as: ${saveHandle.name}`, 'success');
++      const msg =
++        'Monthly report complete!\n\n' +
++        `File: ${result.filename}\n` +
++        `Cycle: ${Store.fmtDMY(mo.start)} to ${Store.fmtDMY(mo.end)} (${mo.includedWeeks.length === 1 ? 'Week 1' : `Weeks 1–${mo.includedWeeks.length}`} of ${mo.plannedWeeks})\n` +
++        `Repeated check: the ${mo.lookbackDays} days before each week` +
++        (mo.archiveDaysUsed ? ` (${plural(mo.archiveDaysUsed, 'day')} read from the archive)` : '') + '\n\n' +
++        `By week:\n${weekLines}\n\n` +
++        `Students in roster: ${tot.toLocaleString()}\n` +
++        `Monthly New MAU: ${result.monthlyNew.toLocaleString()} (${pct(result.monthlyNew)})\n` +
++        `Repeated only (MAU this cycle, but already MAU before): ${result.repeatedOnly.toLocaleString()}\n` +
++        `Total active this cycle: ${result.totalActive.toLocaleString()} (${pct(result.totalActive)})\n` +
++        `Completed earlier only (no MAU this cycle): ${result.earlierOnly.toLocaleString()}\n` +
++        `Pending: ${result.pending.toLocaleString()}\n` +
++        `Logged in this cycle: ${result.logStudents.toLocaleString()}` +
++        (mo.warnings.length ? `\n\nNotes:\n${mo.warnings.map(w => '  • ' + w).join('\n')}` : '');
++      monLog(`Done — Monthly New MAU ${result.monthlyNew.toLocaleString()} (${pct(result.monthlyNew)}), Repeated only ${result.repeatedOnly.toLocaleString()}, of ${tot.toLocaleString()} students`, 'success');
++      setStatus(monStatus, outcome === 'saved' ? 'Report saved!' : 'Report downloaded to your Downloads folder.', 'success');
++      showModal('Monthly MAU Report', msg + savedNote, { blob: result.blob, filename: result.filename });
++    } catch (err) {
++      console.error(err);
++      sessionEnded(err);
++      monLog(`ERROR: ${err.message}`, 'error');
++      setStatus(monStatus, `Error: ${err.message}`, 'error');
++      showModal('Error', `Error building the monthly report:\n\n${err.message}`);
++    } finally {
++      T4.busy = false;
++      renderValidation();
++      renderMonthly();
++    }
++  });
++
++  var monthlyReady = true;   // renderAdmin / refreshStore may now redraw the Monthly tab
++
+   /* ---------- start-up: open the shared store for everyone ---------- */
+   (async () => {
+     renderAdmin(); renderValidation(); renderLabel();
+@@ -1204,6 +1390,8 @@
+     catch (e) { console.error(e); }
+     T4.wasAdmin = Store.isAdmin();          // an admin session from earlier in this tab carries over a reload
+     await refreshStore(true);
++    M.cycle = await Store.getCycle();       // the admin's current reporting cycle → default for the Monthly tab
++    renderMonthly();
+   })();
+ 
+ })();
+diff --git a/js/processing.js b/js/processing.js
+index f25d26a..959f4fe 100644
+--- a/js/processing.js
++++ b/js/processing.js
+@@ -1463,6 +1463,160 @@ async function processAndPrepareAdobe(files, onProgress, onStatus, templateArray
+   return buildReportFromActivity(activity, opts, status, progress, templateArrayBuffer);
+ }
+ 
++/* ============================================================
++ * Monthly MAU report (Monthly tab) — rolling look-back per week
++ *
++ * The cycle is split into weeks of 7 days from the cycle start. For every week,
++ * the look-back is the N days (default 28) that end the day before the week starts:
++ *   MAU this week + MAU in its look-back → Repeated (not counted again)
++ *   MAU this week only                   → New
++ *   MAU in look-back only                → Completed earlier
++ *   neither                              → Pending
++ * Monthly New MAU = students who were New in at least one week. With a 28-day
++ * look-back a student can be New in only one week of a 4–5 week cycle (every later
++ * week's look-back covers the earlier weeks), so it equals the sum of the weekly New.
++ * ============================================================ */
++const MONTHLY_STATUS = { New: 'N', Repeated: 'R', 'Completed earlier': 'C', Pending: 'P' };
++
++/** State-wise week-by-week New / Repeated + monthly totals (the 'Weekly_State' sheet). */
++function computeMonthlyStateTable(rows, weeks) {
++  const by = new Map();
++  const blank = () => ({ tot: 0, neu: weeks.map(() => 0), rep: weeks.map(() => 0), mNew: 0, repOnly: 0 });
++  const T = blank();
++  for (const r of rows) {
++    const st = r['state'] == null || String(r['state']).trim() === '' ? '(blank)' : r['state'];
++    if (!by.has(st)) by.set(st, blank());
++    for (const s of [by.get(st), T]) {
++      s.tot++;
++      weeks.forEach((w, i) => {
++        const v = r[`Week ${w.n} Status`];
++        if (v === 'New') s.neu[i]++; else if (v === 'Repeated') s.rep[i]++;
++      });
++      if (r._newMau) s.mNew++; else if (r._repeated) s.repOnly++;
++    }
++  }
++  const mk = (name, s) => {
++    const o = { States: name, 'Total Students': s.tot };
++    weeks.forEach((w, i) => { o[`W${w.n} New`] = s.neu[i]; o[`W${w.n} Repeated`] = s.rep[i]; });
++    o['Monthly New MAU'] = s.mNew;
++    o['Repeated only'] = s.repOnly;
++    o['Total active'] = s.mNew + s.repOnly;
++    o['% Monthly New MAU'] = safePct(s.mNew, s.tot);
++    o['% Total active'] = safePct(s.mNew + s.repOnly, s.tot);
++    return o;
++  };
++  const out = [...by.entries()].map(([k, s]) => mk(k, s))
++    .sort((a, b) => (b['% Monthly New MAU'] || 0) - (a['% Monthly New MAU'] || 0));
++  out.push(mk('Total', T));
++  return out;
++}
++
++/**
++ * Build the monthly workbook.
++ * @param data {start, end, lookbackDays, weeks:[{n, from, to, lbFrom, lbTo, periodText, lookbackText,
++ *              daysWithData, daysPlanned, missingText, lbMissingText, mau:Map(email→ts), login:Set, lbMau:Set}]}
++ */
++async function buildMonthlyReport(data, onStatus, onProgress, templateArrayBuffer) {
++  const status = onStatus || (() => {});
++  const progress = onProgress || (() => {});
++  const weeks = data.weeks || [];
++  if (!weeks.length) throw new Error('No weeks to report.');
++
++  progress(16);
++  const { tsv, fromCache } = await loadRosterTSV(status, templateArrayBuffer);
++  const rosterRows = rosterTSVToRows(tsv);
++  if (rosterRows.length < 1) throw new Error('Template roster has no data rows.');
++  progress(48);
++
++  status('Classifying every student week by week (New / Repeated / Completed earlier / Pending)…'); progress(56);
++  const wk = weeks.map(() => ({ neu: 0, rep: 0, prev: 0, pend: 0 }));
++  let monthlyNew = 0, repeatedOnly = 0, earlierOnly = 0, pending = 0, logYes = 0, mauDated = 0;
++  for (const r of rosterRows) {
++    const em = String(r[TEMPLATE_EMAIL_COL] == null ? '' : r[TEMPLATE_EMAIL_COL]).trim().toLowerCase();
++    let newWeek = 0, anyMau = false, anyLb = false, anyLogin = false, firstTs;
++    weeks.forEach((w, i) => {
++      const thisMau = em !== '' && w.mau.has(em);
++      const was = em !== '' && w.lbMau.has(em);
++      let s;
++      if (thisMau && was) { s = 'Repeated'; wk[i].rep++; }
++      else if (thisMau) { s = 'New'; wk[i].neu++; if (!newWeek) newWeek = w.n; }
++      else if (was) { s = 'Completed earlier'; wk[i].prev++; }
++      else { s = 'Pending'; wk[i].pend++; }
++      r[`Week ${w.n} Status`] = s;
++      if (thisMau) { anyMau = true; const ts = w.mau.get(em); if (firstTs === undefined || ts < firstTs) firstTs = ts; }
++      if (was) anyLb = true;
++      if (em !== '' && w.login.has(em)) anyLogin = true;
++    });
++    r['Completed MAU?'] = anyMau ? 'Yes' : 'No';
++    r['First MAU Date'] = firstTs !== undefined ? toIstDate(firstTs) : '';
++    r['Logged In?'] = anyLogin ? 'Yes' : 'No';
++    r['New MAU Week'] = newWeek ? `Week ${newWeek}` : '';
++    let ms;
++    if (newWeek) { ms = 'New MAU'; monthlyNew++; }
++    else if (anyMau) { ms = 'Repeated only'; repeatedOnly++; }
++    else if (anyLb) { ms = 'Completed earlier only'; earlierOnly++; }
++    else { ms = 'Pending'; pending++; }
++    r['Monthly Status'] = ms;
++    r._newMau = newWeek ? 1 : 0;
++    r._repeated = !newWeek && anyMau ? 1 : 0;
++    r._pending = ms === 'Pending' ? 1 : 0;
++    if (anyLogin) logYes++;
++    if (firstTs !== undefined) mauDated++;
++  }
++
++  status('Normalizing and computing summaries…'); progress(70);
++  const normRows = normalizeGroupingColumns(rosterRows);
++  const summaries = relabelRangeSummaries(computeSummaries(normRows, true));
++  const mauDist = computeSchoolDistribution(normRows, true);
++  const stateTable = computeMonthlyStateTable(normRows, weeks);
++
++  const total = rosterRows.length;
++  let cum = 0;
++  const overview = weeks.map((w, i) => {
++    cum += wk[i].neu;
++    return {
++      Week: `Week ${w.n}`,
++      'Report period': w.periodText,
++      'Look-back (Repeated check)': w.lookbackText,
++      'Days with data': `${w.daysWithData} of ${w.daysPlanned}`,
++      'Missing days': w.missingText || '',
++      'Look-back missing days': w.lbMissingText || '',
++      'MAU in week': wk[i].neu + wk[i].rep,
++      'New MAU': wk[i].neu,
++      'Repeated': wk[i].rep,
++      'Completed earlier': wk[i].prev,
++      'Pending': wk[i].pend,
++      'Cumulative New MAU': cum,
++      '% Cumulative New MAU': safePct(cum, total)
++    };
++  });
++  overview.push({
++    Week: 'Total', 'Report period': data.periodText || '', 'Look-back (Repeated check)': `${data.lookbackDays} days before each week`,
++    'Days with data': '', 'Missing days': '', 'Look-back missing days': '',
++    'MAU in week': monthlyNew + repeatedOnly, 'New MAU': monthlyNew, 'Repeated': repeatedOnly, 'Completed earlier': earlierOnly, 'Pending': pending,
++    'Cumulative New MAU': monthlyNew, '% Cumulative New MAU': safePct(monthlyNew, total)
++  });
++
++  status('Building the monthly Excel file (incl. student-level Raw_Data)…'); progress(86);
++  const wb = new ExcelJS.Workbook();
++  addTitledTableSheet(wb, 'Week_Overview',
++    `Monthly MAU — ${data.periodText || ''} · Repeated = MAU in the ${data.lookbackDays} days before each week (Total row: MAU in week = active in month, Repeated = repeated only)`, overview);
++  addTitledTableSheet(wb, 'Weekly_State', 'State-wise New / Repeated MAU by week', stateTable);
++  addSummarySheets(wb, summaries, mauDist);
++  const rawCols = PA_RAW_COLS.concat(weeks.map(w => `Week ${w.n} Status`), ['New MAU Week', 'Monthly Status']);
++  addRowSheet(wb, 'Raw_Data', rawCols, normRows);
++  const buf = await writeWorkbookBuffer(wb);
++  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
++  progress(100);
++
++  return {
++    blob, totalStudents: total, monthlyNew, repeatedOnly, earlierOnly, pending, totalActive: monthlyNew + repeatedOnly,
++    logStudents: logYes, mauWithDate: mauDated, rosterFromCache: fromCache,
++    weeks: weeks.map((w, i) => ({ n: w.n, from: w.from, to: w.to, lbFrom: w.lbFrom, lbTo: w.lbTo, ...wk[i], mau: wk[i].neu + wk[i].rep, cumNew: overview[i]['Cumulative New MAU'] })),
++    summaries, mauDist, stateTable, overview
++  };
++}
++
+ function dateStamp() {
+   const d = new Date();
+   const dd = String(d.getDate()).padStart(2, '0');
+@@ -1484,6 +1638,7 @@ window.Processing = {
+   processAndPrepareAdobe,
+   collectActivityFromLogs,
+   buildReportFromActivity,
++  buildMonthlyReport,
+   parseLogTimestamp,
+   IST_OFFSET_MS,
+   fetchAdobeTemplate
+diff --git a/js/store.js b/js/store.js
+index 1d2ddca..806cb07 100644
+--- a/js/store.js
++++ b/js/store.js
+@@ -919,6 +919,223 @@
+     return res;
+   }
+ 
++  /* ---------- monthly report (Monthly tab): weeks from the cycle start, rolling look-back per week ---------- */
++  const MONTHLY_LOOKBACK_DEFAULT = 28;
++
++  /** The reporting cycle the admin set on the service (/v1/cycle, public) → {name, start, end} or null. */
++  async function getCycle() {
++    if (_override) return _override.cycle || null;
++    if (!_cfg.service) return null;
++    try {
++      const res = await svc('/v1/cycle');
++      if (!res.ok) return null;
++      const b = await bodyJson(res);
++      const c = b && b.ok ? b.cycle : null;
++      return c && isDayKey(c.start) && isDayKey(c.end) ? { name: String(c.name || ''), start: c.start, end: c.end } : null;
++    } catch (_) { return null; }
++  }
++
++  /**
++   * Admin only: which days the archives (earlier cycles) hold → { days: Map(day → path), folders }.
++   * When two archives hold the same day, the most recently updated one wins.
++   */
++  async function loadArchiveIndex() {
++    requireAdmin();
++    const days = new Map(), folders = [];
++    const addPath = path => { const m = /^archive\/[^/]+\/daily\/(\d{4}-\d{2}-\d{2})\.csv$/.exec(path); if (m && !days.has(m[1])) days.set(m[1], path); };
++    if (_override) {
++      if (typeof _override.list !== 'function') return { days, folders };
++      for (const f of (await _override.list(ARCHIVE_DIR)).sort().reverse()) {
++        folders.push(f);
++        for (const n of await _override.list(`${ARCHIVE_DIR}/${f}/${DAILY_DIR}`)) addPath(`${ARCHIVE_DIR}/${f}/${DAILY_DIR}/${n}`);
++      }
++      return { days, folders };
++    }
++    const res = await svc('/v1/archives', { headers: authHeader() });
++    const body = await bodyJson(res);
++    if (res.status === 404 && !(body && body.code)) throw new StoreError('no-archives', 'This store service cannot list archives yet (it needs the v3 update of the Cloudflare worker).');
++    if (!res.ok || !body || !body.ok) throw serviceError(res, body, 'list the archives');
++    const list = (body.archives || []).filter(a => a && a.folder)
++      .sort((x, y) => (Number(y.updated) || 0) - (Number(x.updated) || 0) || String(y.folder).localeCompare(String(x.folder)));
++    for (const a of list) {
++      const r2 = await svc('/v1/archives?folder=' + encodeURIComponent(a.folder), { headers: authHeader() });
++      const b2 = await bodyJson(r2);
++      if (!r2.ok || !b2 || !b2.ok) throw serviceError(r2, b2, 'list the archive ' + a.folder);
++      folders.push(a.folder);
++      for (const x of b2.files || []) addPath(String(x.path || ''));
++    }
++    return { days, folders };
++  }
++  async function readArchiveText(path) {
++    if (_override) return _override.readText(path);
++    return (await fetchFile(path, true)).text;
++  }
++
++  /** The weeks of a cycle: week i = start + 7·i … +6; its look-back = the `lookbackDays` days before it. */
++  function monthlyWeeks(p) {
++    const lb = Number(p.lookbackDays) || MONTHLY_LOOKBACK_DEFAULT;
++    const out = [];
++    for (let i = 0; i < (Number(p.weeks) || 0); i++) {
++      const from = addDays(p.start, 7 * i);
++      out.push({ n: i + 1, from, to: addDays(from, 6), lbFrom: addDays(from, -lb), lbTo: addDays(from, -1) });
++    }
++    return out;
++  }
++  function monthlyFilename(p) {
++    const w = monthlyWeeks(p);
++    return `Adobe_Monthly_MAU_${fmtDMY(p.start)}_to_${fmtDMY(w.length ? w[w.length - 1].to : p.start)}.xlsx`;
++  }
++  const weekList = ns => {                                     // [1,2,3] → "Weeks 1–3", [1,3] → "Weeks 1, 3"
++    if (ns.length === 1) return `Week ${ns[0]}`;
++    const run = ns.every((n, i) => !i || n === ns[i - 1] + 1);
++    return `Weeks ${run ? `${ns[0]}–${ns[ns.length - 1]}` : ns.join(', ')}`;
++  };
++
++  /**
++   * Pure checks for the monthly form.
++   * @param p    {start, weeks, lookbackDays}
++   * @param ctx  {manifest, summary, archive: Map(day→path)|null, admin: bool, archiveError: string, today}
++   * @returns {{errors, warnings, weeks:[…+ included, dataTo, missing[], lbMissing[], lbLocked[]], lastDataDay}}
++   */
++  function validateMonthly(p, ctx) {
++    const errors = [], warnings = [];
++    const E = (code, msg) => errors.push({ code, msg });
++    const W = (code, msg) => warnings.push({ code, msg });
++    const today = ctx.today, summary = ctx.summary, days = (ctx.manifest && ctx.manifest.days) || {};
++    const archive = ctx.archive || null;
++    const weeksN = Number(p.weeks), lbN = Number(p.lookbackDays);
++    if (!isDayKey(p.start)) E('start-empty', 'Pick the cycle start date.');
++    else if (p.start > today) E('future', "The cycle start can't be after today.");
++    if (!Number.isInteger(weeksN) || weeksN < 1 || weeksN > 6) E('weeks', 'Number of weeks must be 1 to 6.');
++    if (!Number.isInteger(lbN) || lbN < 1 || lbN > 62) E('lookback', 'Look-back must be 1 to 62 days.');
++    if (!summary || summary.empty) E('store-empty', 'The store is empty — an admin needs to add files first.');
++    if (errors.length) return { errors, warnings, weeks: [], lastDataDay: null };
++
++    const has = k => !!days[k] || !!(archive && archive.has(k));
++    let lastDataDay = summary.lastDay;
++    if (archive) for (const k of archive.keys()) if (k > lastDataDay) lastDataDay = k;
++    if (lastDataDay > today) lastDataDay = today;
++
++    const weeks = monthlyWeeks({ start: p.start, weeks: weeksN, lookbackDays: lbN }).map(w => {
++      const included = w.from <= lastDataDay;
++      const dataTo = w.to < lastDataDay ? w.to : lastDataDay;
++      const missing = included ? dayRange(w.from, dataTo).filter(k => !has(k)) : [];
++      const lbAll = dayRange(w.lbFrom, w.lbTo);
++      // look-back days outside the current store that an admin could read from the archive (only when not logged in)
++      const lbLocked = !archive ? lbAll.filter(k => !days[k] && k < summary.firstDay) : [];
++      const lbMissing = lbAll.filter(k => !has(k) && !lbLocked.includes(k));
++      return { ...w, included, dataTo, missing, lbMissing, lbLocked };
++    });
++    const inc = weeks.filter(w => w.included);
++    if (!inc.length) { E('no-data', `No stored data yet for this cycle (data runs up to ${fmtDMY(lastDataDay)}).`); return { errors, warnings, weeks, lastDataDay }; }
++
++    const later = weeks.filter(w => !w.included);
++    if (later.length) W('weeks-later', `${weekList(later.map(w => w.n))} (from ${fmtDMY(later[0].from)}) ${later.length === 1 ? 'has' : 'have'} no data yet and will be left out.`);
++    const partial = inc.filter(w => w.dataTo < w.to);
++    for (const w of partial) W('week-partial', `Week ${w.n} (${fmtShort(w.from)}–${fmtShort(w.to)}) is not complete: data only up to ${fmtDMY(w.dataTo)}.`);
++    for (const w of inc) if (w.missing.length) W('missing-week', `Week ${w.n}: no data for ${compressDays(w.missing)}.`);
++
++    const locked = inc.filter(w => w.lbLocked.length);
++    if (locked.length) {
++      const all = [...new Set(locked.flatMap(w => w.lbLocked))].sort();
++      W('lookback-archive', `The look-back for ${weekList(locked.map(w => w.n))} needs ${compressDays(all)}, which is before the current store (${fmtDMY(summary.firstDay)}) — those days sit in the previous cycle's archive, which only an admin can read. ` +
++        (ctx.archiveError ? `The archive could not be read: ${ctx.archiveError} ` : (ctx.admin ? '' : 'Log in as admin to include them. ')) +
++        'Without them, students who were MAU only on those days count as New instead of Repeated.');
++    }
++    const lbMiss = [...new Set(inc.flatMap(w => w.lbMissing))].sort();
++    if (lbMiss.length) W('missing-lookback', `Look-back has no data for ${compressDays(lbMiss)} — students MAU only on those days count as New instead of Repeated.`);
++    return { errors, warnings, weeks, lastDataDay };
++  }
++
++  async function runMonthlyReport(p, status, progress, templateArrayBuffer) {
++    const P = window.Processing;
++    const st = status || (() => {}), pr = progress || (() => {});
++    const params = { start: p.start, weeks: Number(p.weeks), lookbackDays: Number(p.lookbackDays) || MONTHLY_LOOKBACK_DEFAULT };
++    let archive = null, archiveError = '';
++    if (isAdmin()) {
++      st('Listing archived days (earlier cycles)…'); pr(1);
++      try { archive = (await loadArchiveIndex()).days; }
++      catch (e) { if (e && e.code === 'session-expired') throw e; archiveError = (e && e.message) || String(e); }
++    }
++    let manifest, v, texts;
++    for (let attempt = 0; ; attempt++) {
++      try {
++        manifest = await loadManifest();
++        v = validateMonthly(params, { manifest, summary: summarize(manifest), archive, admin: isAdmin(), archiveError, today: todayKey() });
++        if (v.errors.length) throw new StoreError('invalid', v.errors[0].msg);
++        const need = new Set();
++        for (const w of v.weeks.filter(x => x.included)) {
++          for (const k of dayRange(w.from, w.dataTo)) need.add(k);
++          for (const k of dayRange(w.lbFrom, w.lbTo)) need.add(k);
++        }
++        const jobs = [...need].sort().map(k => manifest.days[k] ? { k, path: `${DAILY_DIR}/${k}.csv`, arch: false }
++          : (archive && archive.has(k) ? { k, path: archive.get(k), arch: true } : null)).filter(Boolean);
++        const a0 = requireAdapter();
++        const a = (manifest._head != null && a0.at) ? a0.at(manifest._head) : a0;
++        st(`Reading ${jobs.length} stored days (${jobs.filter(j => j.arch).length} from the archive)…`); pr(4);
++        texts = new Map();
++        let next = 0, done = 0;
++        const worker = async () => {
++          while (next < jobs.length) {
++            const j = jobs[next++];
++            try { texts.set(j.k, j.arch ? await readArchiveText(j.path) : await a.readText(j.path)); }
++            catch (e) {
++              if (e instanceof StoreError) throw e;
++              throw new StoreError('read-failed', `Could not read ${j.k}.csv (${e.message || e.name}).`);
++            }
++            pr(4 + Math.round(10 * (++done) / jobs.length));
++          }
++        };
++        await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
++        break;
++      } catch (e) {
++        if (e && e.code === 'changed' && attempt < 2) { st('The store was just updated — reading it again…'); continue; }
++        throw e;
++      }
++    }
++    // Each day once: MAU (email → earliest ts) and login emails.
++    const perDay = new Map();
++    for (const [k, txt] of texts) {
++      if (txt == null) continue;
++      const mau = new Map(), login = new Set();
++      for (const [email, x] of parseDay(txt)) { if (x.mau != null) mau.set(email, x.mau); if (x.login != null) login.add(email); }
++      perDay.set(k, { mau, login });
++    }
++    const inc = v.weeks.filter(w => w.included);
++    const weeks = inc.map(w => {
++      const mau = new Map(), login = new Set(), lbMau = new Set();
++      let withData = 0;
++      for (const k of dayRange(w.from, w.to)) {
++        const d = perDay.get(k); if (!d) continue;
++        withData++;
++        for (const [e, ts] of d.mau) { const q = mau.get(e); if (q === undefined || ts < q) mau.set(e, ts); }
++        for (const e of d.login) login.add(e);
++      }
++      for (const k of dayRange(w.lbFrom, w.lbTo)) { const d = perDay.get(k); if (d) for (const e of d.mau.keys()) lbMau.add(e); }
++      const lbGone = [...w.lbMissing, ...w.lbLocked].sort();
++      const missAll = [...w.missing, ...dayRange(addDays(w.dataTo, 1), w.to).filter(k => k > w.dataTo)];
++      return {
++        n: w.n, from: w.from, to: w.to, lbFrom: w.lbFrom, lbTo: w.lbTo,
++        periodText: `${fmtDMY(w.from)} to ${fmtDMY(w.to)}`, lookbackText: `${fmtDMY(w.lbFrom)} to ${fmtDMY(w.lbTo)}`,
++        daysWithData: withData, daysPlanned: 7,
++        missingText: missAll.length ? compressDays(missAll) : '', lbMissingText: lbGone.length ? compressDays(lbGone) : '',
++        mau, login, lbMau
++      };
++    });
++    const end = inc[inc.length - 1].to;
++    const res = await P.buildMonthlyReport({
++      start: params.start, end, lookbackDays: params.lookbackDays, weeks,
++      periodText: `${fmtDMY(params.start)} to ${fmtDMY(end)}`
++    }, st, pr, templateArrayBuffer);
++    res.filename = monthlyFilename(params);
++    res.monthly = {
++      start: params.start, end, lookbackDays: params.lookbackDays, plannedWeeks: params.weeks,
++      includedWeeks: inc.map(w => w.n), warnings: v.warnings.map(w => w.msg),
++      archiveDaysUsed: [...texts.keys()].filter(k => !manifest.days[k]).length, archiveError
++    };
++    return res;
++  }
++
+   /* ---------- public API ---------- */
+   const Store = {
+     StoreError,
+@@ -931,6 +1148,8 @@
+     // data
+     parseLogFiles, commitParsed, ingestLogFiles, resetStore, loadManifest, getSummary, summarize, formatLabel, coverageGrid,
+     loadActivityForRange, validateRange, lookbackPreset, runRangeReport, reportFilename,
++    // monthly report (Monthly tab)
++    getCycle, loadArchiveIndex, monthlyWeeks, monthlyFilename, validateMonthly, runMonthlyReport, MONTHLY_LOOKBACK_DEFAULT,
+     // helpers (exported for the UI + tests)
+     dayKeyFromTs, todayKey, addDays, dayRange, fmtDMY, fmtShort, compressDays, monthLabel, fmtIst, isDayKey,
+     parseDay, serializeDay, checkMonthGuard
